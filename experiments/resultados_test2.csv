@@ -1,3 +1,0 @@
-Test,Dataset,Modelo,Stats,T. Entreno (s),Precision In.,Recall In.,F1-score In.,Precision Out.,Recall Out.,F1-score Out.,AUC-ROC
-test2,blobs,OCSVM,500 - 100 - 2,0.0041,1.0,0.95,0.9744,0.8,1.0,0.8889,1.0
-test2,blobs,ECOD,500 - 100 - 2,0.4061,0.919,0.976,0.9467,0.8261,0.57,0.6746,0.9535

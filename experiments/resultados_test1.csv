@@ -1,5 +1,0 @@
-Test,Dataset,Modelo,Stats,T. Entreno (s),Precision In.,Recall In.,F1-score In.,Precision Out.,Recall Out.,F1-score Out.,AUC-ROC
-test1,moons,IForest,950 - 50 - 2,0.4725,0.9945,0.9495,0.9715,0.4839,0.9,0.6294,0.9777
-test1,moons,KNN,950 - 50 - 2,0.004,0.9978,0.9726,0.9851,0.6486,0.96,0.7742,0.9983
-test1,circles,IForest,950 - 50 - 2,0.4787,0.9978,0.9495,0.973,0.5,0.96,0.6575,0.9865
-test1,circles,KNN,950 - 50 - 2,0.0045,0.9989,0.9726,0.9856,0.6533,0.98,0.784,0.9988
