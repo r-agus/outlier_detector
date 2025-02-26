@@ -36,6 +36,7 @@ def generate_latex_report(df, output_file="report.tex"):
         f.write("\\usepackage{booktabs}\n")
         f.write("\\usepackage{longtable}\n")
         f.write("\\usepackage{geometry}\n")
+        f.write("\\usepackage{float}\n")
         f.write("\\geometry{a4paper, margin=1in}\n")
         f.write("\\begin{document}\n")
         
@@ -43,7 +44,7 @@ def generate_latex_report(df, output_file="report.tex"):
         f.write("\\section*{Resumen de Resultados}\n")
         summary_columns = ["Test", "Dataset", "Modelo", "Tiempo Entrenamiento (s)", "AUC-ROC"]
         df_summary = df[summary_columns]
-        f.write("\\begin{table}[h]\n")
+        f.write("\\begin{table}[H]\n")
         f.write("\\centering\n")
         f.write(df_summary.to_latex(index=False, caption=None))
         f.write("\\caption{Resumen de resultados}\n")
