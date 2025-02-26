@@ -4,6 +4,7 @@ import yaml
 import numpy as np
 import time
 import pandas as pd
+import matplotlib.pyplot as plt
 from sklearn.datasets import make_moons, make_circles, make_blobs
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, roc_auc_score
@@ -52,6 +53,11 @@ experiments_dir = "experiments"
 if not os.path.exists(experiments_dir):
     os.makedirs(experiments_dir)
 
+# Crear carpeta para figuras (dentro de experiments)
+figures_dir = os.path.join(experiments_dir, "figures")
+if not os.path.exists(figures_dir):
+    os.makedirs(figures_dir)
+
 # Iterar sobre cada test configurado en el YAML
 for test in config.get("tests", []):
     test_name = test.get("name", "test_unnamed")
@@ -91,12 +97,40 @@ for test in config.get("tests", []):
             scores = model.decision_function(X)
             
             # Generar reporte de clasificación (output_dict para extraer métricas)
-            report = classification_report(y, y_pred, target_names=["inlier", "outlier"], output_dict=True)
+            report_dict = classification_report(y, y_pred, target_names=["inlier", "outlier"], output_dict=True)
             auc_roc = roc_auc_score(y, scores)
+            
+            # Generar visualización con contourf
+            x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
+            y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
+            xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100),
+                                 np.linspace(y_min, y_max, 100))
+            grid = np.c_[xx.ravel(), yy.ravel()]
+            try:
+                Z = model.decision_function(grid)
+            except Exception as e:
+                Z = np.zeros(len(grid))
+            Z = Z.reshape(xx.shape)
+            
+            plt.figure()
+            cp = plt.contourf(xx, yy, Z, levels=20, cmap='viridis')
+            plt.colorbar(cp)
+            plt.scatter(X[:, 0], X[:, 1], c=y, edgecolors='k', cmap='coolwarm', marker='o')
+            plt.contour(xx, yy, Z, levels=[0], colors='red', linewidths=2)
+            plt.title(f"{test_name} - {dataset} - {name}")
+            
+            # Guardar figura
+            figure_filename = f"fig_{test_name}_{dataset}_{name}.png"
+            figure_filepath = os.path.join(figures_dir, figure_filename)
+            plt.savefig(figure_filepath, bbox_inches='tight')
+            plt.close()
+            
+            # Preparar un detalle textual (incluir el classification_report completo)
+            detalle = classification_report(y, y_pred, target_names=["inlier", "outlier"])
             
             print(f"\n🔍 {name} en dataset '{dataset}' del test '{test_name}'")
             print(f"Tiempo de entrenamiento: {train_time:.2f}s")
-            print(classification_report(y, y_pred, target_names=["inlier", "outlier"]))
+            print(detalle)
             print(f"AUC-ROC: {auc_roc:.2f}")
             
             resultados.append({
@@ -104,14 +138,16 @@ for test in config.get("tests", []):
                 "Dataset": dataset,
                 "Modelo": name,
                 "Stats": f"{n_inliers} - {n_outliers} - {X.shape[1]}",
-                "T. Entreno (s)": round(train_time, 4),
-                "Precision In.": round(report["inlier"]["precision"], 4),
-                "Recall In.": round(report["inlier"]["recall"], 4),
-                "F1-score In.": round(report["inlier"]["f1-score"], 4),
-                "Precision Out.": round(report["outlier"]["precision"], 4),
-                "Recall Out.": round(report["outlier"]["recall"], 4),
-                "F1-score Out.": round(report["outlier"]["f1-score"], 4),
-                "AUC-ROC": round(auc_roc, 4)
+                "Tiempo Entrenamiento (s)": round(train_time, 2),
+                "Precision Inlier": round(report_dict["inlier"]["precision"], 2),
+                "Recall Inlier": round(report_dict["inlier"]["recall"], 2),
+                "F1-score Inlier": round(report_dict["inlier"]["f1-score"], 2),
+                "Precision Outlier": round(report_dict["outlier"]["precision"], 2),
+                "Recall Outlier": round(report_dict["outlier"]["recall"], 2),
+                "F1-score Outlier": round(report_dict["outlier"]["f1-score"], 2),
+                "AUC-ROC": round(auc_roc, 2),
+                "Figura": figure_filepath,
+                "Detalle": detalle
             })
     
     # Guardar resultados de este test en un archivo CSV individual

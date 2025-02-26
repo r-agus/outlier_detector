@@ -19,24 +19,60 @@ def read_experiment_files(folder="experiments"):
 
 def generate_latex_report(df, output_file="report.tex"):
     """
-    Genera un reporte en LaTeX a partir del DataFrame y lo guarda en 'output_file'.
+    Genera un reporte en LaTeX que incluye:
+      - Una sección resumen con una tabla (con pocas columnas clave).
+      - Una sección de detalles: para cada experimento se crea una página con la imagen generada y el informe detallado.
     """
     out_dir = "out"
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
     output_file = os.path.join(out_dir, output_file)
-    
+
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("% Reporte generado automáticamente\n")
         f.write("\\documentclass{article}\n")
-        f.write("\\usepackage[landscape, left=1cm, right=1cm]{geometry}\n")
         f.write("\\usepackage[utf8]{inputenc}\n")
+        f.write("\\usepackage{graphicx}\n")
         f.write("\\usepackage{booktabs}\n")
         f.write("\\usepackage{longtable}\n")
+        f.write("\\usepackage{geometry}\n")
+        f.write("\\geometry{a4paper, margin=1in}\n")
         f.write("\\begin{document}\n")
-        f.write("\\section*{Reporte de Experimentos}\n")
-        f.write(df.to_latex(index=False, caption='Resultados de Experimentos', label='tab:resultados', longtable=True))
-        f.write("\n\\end{document}\n")
+        
+        # Sección resumen con tabla de resultados (columnas clave)
+        f.write("\\section*{Resumen de Resultados}\n")
+        summary_columns = ["Test", "Dataset", "Modelo", "Tiempo Entrenamiento (s)", "AUC-ROC"]
+        df_summary = df[summary_columns]
+        f.write("\\begin{table}[h]\n")
+        f.write("\\centering\n")
+        f.write(df_summary.to_latex(index=False, caption=None))
+        f.write("\\caption{Resumen de resultados}\n")
+        f.write("\\end{table}\n")
+        f.write("\n\\newpage\n")
+        
+        # Sección de detalles: una página por cada experimento
+        f.write("\\section*{Detalles por Experimento}\n")
+        for idx, row in df.iterrows():
+            f.write("\\subsection*{Test: %s -- Dataset: %s -- Modelo: %s}\n" % (row["Test"], row["Dataset"], row["Modelo"]))
+            f.write("\\textbf{Tiempo de entrenamiento (s):} %s \\\\ \n" % row["Tiempo Entrenamiento (s)"])
+            f.write("\\textbf{AUC-ROC:} %s \\\\ \n" % row["AUC-ROC"])
+            f.write("\\textbf{Precision Inlier:} %s, \\textbf{Recall Inlier:} %s, \\textbf{F1-score Inlier:} %s \\\\ \n" %
+                    (row["Precision Inlier"], row["Recall Inlier"], row["F1-score Inlier"]))
+            f.write("\\textbf{Precision Outlier:} %s, \\textbf{Recall Outlier:} %s, \\textbf{F1-score Outlier:} %s \\\\ \n" %
+                    (row["Precision Outlier"], row["Recall Outlier"], row["F1-score Outlier"]))
+            f.write("\\begin{center}\n")
+            # Corregir la ruta de la figura (usar barras normales)
+            figura_path = "../" + row["Figura"].replace("\\", "/")
+            f.write("\\includegraphics[width=0.8\\textwidth]{%s}\n" % figura_path)
+            f.write("\\end{center}\n")
+            f.write("\\vspace{0.5cm}\n")
+            f.write("\\textbf{Reporte detallado:}\\\\\n")
+            f.write("\\begin{verbatim}\n")
+            f.write(row["Detalle"])
+            f.write("\n\\end{verbatim}\n")
+            f.write("\\newpage\n")
+        
+        f.write("\\end{document}\n")
     print(f"✅ Reporte LaTeX generado en '{output_file}'")
 
 if __name__ == "__main__":
