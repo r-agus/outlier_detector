@@ -7,12 +7,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.datasets import make_moons, make_circles, make_blobs
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.metrics import classification_report, roc_auc_score, confusion_matrix, ConfusionMatrixDisplay
 from pyod.models.iforest import IForest
 from pyod.models.knn import KNN
 from pyod.models.ocsvm import OCSVM
 from pyod.models.copod import COPOD
 from pyod.models.ecod import ECOD
+from matplotlib.lines import Line2D
 
 # Cargar configuración desde config.yaml
 with open("config.yaml", "r", encoding="utf-8") as f:
@@ -99,7 +100,8 @@ for test in config.get("tests", []):
             # Generar reporte de clasificación (output_dict para extraer métricas)
             report_dict = classification_report(y, y_pred, target_names=["inlier", "outlier"], output_dict=True)
             auc_roc = roc_auc_score(y, scores)
-            
+            tn, fp, fn, tp = confusion_matrix(y, y_pred).ravel()
+
             # Generar visualización con contourf
             x_min, x_max = X[:, 0].min() - 1, X[:, 0].max() + 1
             y_min, y_max = X[:, 1].min() - 1, X[:, 1].max() + 1
@@ -116,14 +118,49 @@ for test in config.get("tests", []):
             cp = plt.contourf(xx, yy, Z, levels=20, cmap='viridis')
             plt.colorbar(cp)
             plt.scatter(X[:, 0], X[:, 1], c=y, edgecolors='k', cmap='coolwarm', marker='o')
-            plt.contour(xx, yy, Z, levels=[0], colors='red', linewidths=2)
-            plt.title(f"{test_name} - {dataset} - {name}")
+            # Obtener el umbral de decisión real basado en el modelo
+            if hasattr(model, 'threshold_') and model.threshold_ is not None:
+                threshold = model.threshold_
+            elif hasattr(model, 'contamination'):
+                # Podemos estimar el umbral basado en el percentil de contaminación
+                threshold = np.percentile(scores, 100 * (1 - model.contamination))
+            else:
+                # Fallback a un valor que separe inliers de outliers en los scores
+                threshold = np.percentile(scores, 95)  # Asumiendo contamination aprox. 0.05
+            plt.contour(xx, yy, Z, levels=[threshold], colors='red', linewidths=0.5)
+            plt.title(f"{test_name} - {dataset} - {name} (threshold={threshold:.3f})")
+
+            custom_lines = [Line2D([0], [0], color='blue', marker='o', linestyle='None'),
+                            Line2D([0], [0], color='red', marker='o', linestyle='None')]
+            plt.legend(custom_lines, ['Inliers', 'Outliers'])
+            plt.xlabel("Feature 1")
+            plt.ylabel("Feature 2")
             
             # Guardar figura
             figure_filename = f"fig_{test_name}_{dataset}_{name}.png"
             figure_filepath = os.path.join(figures_dir, figure_filename)
             plt.savefig(figure_filepath, bbox_inches='tight')
-            plt.close()
+
+            fig_cm, ax = plt.subplots(figsize=(7, 5))
+
+            # Crear la matriz de confusión con valores absolutos
+            cm = confusion_matrix(y, y_pred)
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm, 
+                                    display_labels=["Inlier", "Outlier"])
+            disp.plot(cmap='Blues', ax=ax, colorbar=False, values_format="d")
+
+            total = cm.sum()
+            for i in range(cm.shape[0]):
+                for j in range(cm.shape[1]):
+                    ax.text(j, i, f"\n({cm[i, j]/total*100:.1f}%)",
+                            ha="center", va="top", color="black" if cm[i, j] < cm.max()/2 else "white")
+
+            plt.title(f"Matriz de Confusión: {name} en {dataset}\n({n_inliers} inliers, {n_outliers} outliers)", pad=10)
+            plt.tight_layout(rect=[0, 0.2, 1, 0.95])  # Hacer espacio para las leyendas
+            cm_filename = f"cm_{test_name}_{dataset}_{name}.png"
+            cm_filepath = os.path.join(figures_dir, cm_filename)
+            plt.savefig(cm_filepath, bbox_inches='tight')
+            plt.close('all')
             
             # Preparar un detalle textual (incluir el classification_report completo)
             detalle = classification_report(y, y_pred, target_names=["inlier", "outlier"])
@@ -137,16 +174,21 @@ for test in config.get("tests", []):
                 "Test": test_name,
                 "Dataset": dataset,
                 "Modelo": name,
-                "Stats": f"{n_inliers} - {n_outliers} - {X.shape[1]}",
+                "TN": tn, 
+                "FP": fp, 
+                "FN": fn, 
+                "TP": tp,
+                "Numero atributos": X.shape[1],
                 "Tiempo Entrenamiento (s)": round(train_time, 2),
-                "Precision Inlier": round(report_dict["inlier"]["precision"], 2),
-                "Recall Inlier": round(report_dict["inlier"]["recall"], 2),
-                "F1-score Inlier": round(report_dict["inlier"]["f1-score"], 2),
-                "Precision Outlier": round(report_dict["outlier"]["precision"], 2),
-                "Recall Outlier": round(report_dict["outlier"]["recall"], 2),
-                "F1-score Outlier": round(report_dict["outlier"]["f1-score"], 2),
-                "AUC-ROC": round(auc_roc, 2),
+                "Precision Inlier": round(report_dict["inlier"]["precision"], 4),
+                "Recall Inlier": round(report_dict["inlier"]["recall"], 4),
+                "F1-score Inlier": round(report_dict["inlier"]["f1-score"], 4),
+                "Precision Outlier": round(report_dict["outlier"]["precision"], 4),
+                "Recall Outlier": round(report_dict["outlier"]["recall"], 4),
+                "F1-score Outlier": round(report_dict["outlier"]["f1-score"], 4),
+                "AUC-ROC": round(auc_roc, 4),
                 "Figura": figure_filepath,
+                "Matriz Confusion": cm_filepath,
                 "Detalle": detalle
             })
     
