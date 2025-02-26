@@ -13,6 +13,9 @@ from pyod.models.knn import KNN
 from pyod.models.ocsvm import OCSVM
 from pyod.models.copod import COPOD
 from pyod.models.ecod import ECOD
+from pyod.models.lof import LOF
+from pyod.models.cblof import CBLOF
+from pyod.models.hbos import HBOS
 from matplotlib.lines import Line2D
 
 # Cargar configuración desde config.yaml
@@ -80,6 +83,15 @@ for test in config.get("tests", []):
             models[model_name] = COPOD(**params)
         elif model_name == "ECOD":
             models[model_name] = ECOD(**params)
+        elif model_name == "LOF":
+            models[model_name] = LOF(**params)
+        elif model_name == "CBLOF":
+            models[model_name] = CBLOF(**params)
+        elif model_name == "HBOS":
+            models[model_name] = HBOS(**params)
+        else:
+            raise ValueError(f"Modelo desconocido: {model_name}")
+        
     
     resultados = []  # Lista para almacenar los resultados de este test
 
@@ -153,7 +165,7 @@ for test in config.get("tests", []):
             for i in range(cm.shape[0]):
                 for j in range(cm.shape[1]):
                     ax.text(j, i, f"\n({cm[i, j]/total*100:.1f}%)",
-                            ha="center", va="top", color="black" if cm[i, j] < cm.max()/2 else "white")
+                            ha="center", va="top", color="#0b336d" if cm[i, j] < cm.max()/2 else "white")
 
             plt.title(f"Matriz de Confusión: {name} en {dataset}\n({n_inliers} inliers, {n_outliers} outliers)", pad=10)
             plt.tight_layout(rect=[0, 0.2, 1, 0.95])  # Hacer espacio para las leyendas
