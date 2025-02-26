@@ -1,4 +1,22 @@
 tests:
+  - name: nuevos
+    n_inliers: 950
+    n_outliers: 50
+    datasets:
+      - moons
+      - circles
+      - blobs
+    models:
+      LOF:
+        n_neighbors: 3
+        algorithm: auto
+        contamination: 0.05
+      CBLOF:
+        # n_clusters: 3
+        contamination: 0.05
+      HBOS:
+        # n_bins: auto
+        contamination: 0.05
   - name: test1
     n_inliers: 950
     n_outliers: 50
