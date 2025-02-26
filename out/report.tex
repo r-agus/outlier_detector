@@ -1,0 +1,49 @@
+% Reporte generado automáticamente
+\documentclass{article}
+\usepackage[landscape, left=1cm, right=1cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage{booktabs}
+\usepackage{longtable}
+\begin{document}
+\section*{Reporte de Experimentos}
+\begin{longtable}{lllrrrrrrrrl}
+\caption{Resultados de Experimentos} \label{tab:resultados} \\
+\toprule
+Dataset & Modelo & Stats & T. Entreno (s) & Precision In. & Recall In. & F1-score In. & Precision Out. & Recall Out. & F1-score Out. & AUC-ROC & Test \\
+\midrule
+\endfirsthead
+\caption[]{Resultados de Experimentos} \\
+\toprule
+Dataset & Modelo & Stats & T. Entreno (s) & Precision In. & Recall In. & F1-score In. & Precision Out. & Recall Out. & F1-score Out. & AUC-ROC & Test \\
+\midrule
+\endhead
+\midrule
+\multicolumn{12}{r}{Continued on next page} \\
+\midrule
+\endfoot
+\bottomrule
+\endlastfoot
+moons & IForest & 950 - 50 - 2 & 0.515000 & 0.994500 & 0.949500 & 0.971500 & 0.483900 & 0.900000 & 0.629400 & 0.977700 & NaN \\
+moons & KNN & 950 - 50 - 2 & 0.005000 & 0.997800 & 0.972600 & 0.985100 & 0.648600 & 0.960000 & 0.774200 & 0.998300 & NaN \\
+moons & OCSVM & 950 - 50 - 2 & 0.027000 & 1.000000 & 0.949500 & 0.974100 & 0.510200 & 1.000000 & 0.675700 & 0.999600 & NaN \\
+moons & COPOD & 950 - 50 - 2 & 0.640000 & 0.988400 & 0.985300 & 0.986800 & 0.735800 & 0.780000 & 0.757300 & 0.967300 & NaN \\
+moons & ECOD & 950 - 50 - 2 & 0.002100 & 0.994700 & 0.985300 & 0.990000 & 0.762700 & 0.900000 & 0.825700 & 0.992500 & NaN \\
+circles & IForest & 950 - 50 - 2 & 0.477100 & 0.997800 & 0.949500 & 0.973000 & 0.500000 & 0.960000 & 0.657500 & 0.986500 & NaN \\
+circles & KNN & 950 - 50 - 2 & 0.004000 & 0.998900 & 0.972600 & 0.985600 & 0.653300 & 0.980000 & 0.784000 & 0.998800 & NaN \\
+circles & OCSVM & 950 - 50 - 2 & 0.014400 & 0.998900 & 0.949500 & 0.973600 & 0.505200 & 0.980000 & 0.666700 & 0.989900 & NaN \\
+circles & COPOD & 950 - 50 - 2 & 0.005100 & 0.986400 & 0.994700 & 0.990600 & 0.881000 & 0.740000 & 0.804300 & 0.961600 & NaN \\
+circles & ECOD & 950 - 50 - 2 & 0.002300 & 0.994800 & 1.000000 & 0.997400 & 1.000000 & 0.900000 & 0.947400 & 0.989700 & NaN \\
+blobs & IForest & 950 - 50 - 2 & 0.454600 & 0.996700 & 0.949500 & 0.972500 & 0.494700 & 0.940000 & 0.648300 & 0.988800 & NaN \\
+blobs & KNN & 950 - 50 - 2 & 0.005200 & 1.000000 & 0.963200 & 0.981200 & 0.588200 & 1.000000 & 0.740700 & 1.000000 & NaN \\
+blobs & OCSVM & 950 - 50 - 2 & 0.012700 & 1.000000 & 0.949500 & 0.974100 & 0.510200 & 1.000000 & 0.675700 & 1.000000 & NaN \\
+blobs & COPOD & 950 - 50 - 2 & 0.003000 & 0.988500 & 0.996800 & 0.992700 & 0.928600 & 0.780000 & 0.847800 & 0.995300 & NaN \\
+blobs & ECOD & 950 - 50 - 2 & 0.004000 & 0.981100 & 0.985300 & 0.983200 & 0.695700 & 0.640000 & 0.666700 & 0.983600 & NaN \\
+moons & IForest & 950 - 50 - 2 & 0.472500 & 0.994500 & 0.949500 & 0.971500 & 0.483900 & 0.900000 & 0.629400 & 0.977700 & test1 \\
+moons & KNN & 950 - 50 - 2 & 0.004000 & 0.997800 & 0.972600 & 0.985100 & 0.648600 & 0.960000 & 0.774200 & 0.998300 & test1 \\
+circles & IForest & 950 - 50 - 2 & 0.478700 & 0.997800 & 0.949500 & 0.973000 & 0.500000 & 0.960000 & 0.657500 & 0.986500 & test1 \\
+circles & KNN & 950 - 50 - 2 & 0.004500 & 0.998900 & 0.972600 & 0.985600 & 0.653300 & 0.980000 & 0.784000 & 0.998800 & test1 \\
+blobs & OCSVM & 500 - 100 - 2 & 0.004100 & 1.000000 & 0.950000 & 0.974400 & 0.800000 & 1.000000 & 0.888900 & 1.000000 & test2 \\
+blobs & ECOD & 500 - 100 - 2 & 0.406100 & 0.919000 & 0.976000 & 0.946700 & 0.826100 & 0.570000 & 0.674600 & 0.953500 & test2 \\
+\end{longtable}
+
+\end{document}

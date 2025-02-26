@@ -1,0 +1,31 @@
+tests:
+  - name: test1
+    n_inliers: 950
+    n_outliers: 50
+    datasets: 
+      - moons
+      - circles
+    models:
+      IForest:
+        n_estimators: 300
+        max_samples: 64
+        contamination: 0.05
+        random_state: 42
+      KNN:
+        n_neighbors: 3
+        method: largest
+        contamination: 0.05
+
+  - name: test2
+    n_inliers: 500
+    n_outliers: 100
+    datasets:
+      - blobs
+    models:
+      OCSVM:
+        kernel: rbf
+        nu: 0.05
+        gamma: 0.1
+        contamination: 0.05
+      ECOD:
+        contamination: 0.05
