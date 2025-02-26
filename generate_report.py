@@ -47,6 +47,7 @@ def generate_latex_report(df, output_file="report.tex"):
         f.write("\\centering\n")
         f.write(df_summary.to_latex(index=False, caption=None))
         f.write("\\caption{Resumen de resultados}\n")
+        f.write("\\label{tab:resumen}\n")
         f.write("\\end{table}\n")
         f.write("\n\\newpage\n")
         
@@ -56,22 +57,25 @@ def generate_latex_report(df, output_file="report.tex"):
             f.write("\\subsection*{Test: %s -- Dataset: %s -- Modelo: %s}\n" % (row["Test"], row["Dataset"], row["Modelo"]))
             f.write("\\textbf{Tiempo de entrenamiento (s):} %s \\\\ \n" % row["Tiempo Entrenamiento (s)"])
             f.write("\\textbf{AUC-ROC:} %s \\\\ \n" % row["AUC-ROC"])
-            f.write("\\textbf{Precision Inlier:} %s, \\textbf{Recall Inlier:} %s, \\textbf{F1-score Inlier:} %s \\\\ \n" %
-                    (row["Precision Inlier"], row["Recall Inlier"], row["F1-score Inlier"]))
-            f.write("\\textbf{Precision Outlier:} %s, \\textbf{Recall Outlier:} %s, \\textbf{F1-score Outlier:} %s \\\\ \n" %
-                    (row["Precision Outlier"], row["Recall Outlier"], row["F1-score Outlier"]))
+            
             f.write("\\begin{center}\n")
-            # Corregir la ruta de la figura (usar barras normales)
+
             figura_path = "../" + row["Figura"].replace("\\", "/")
-            f.write("\\includegraphics[width=0.8\\textwidth]{%s}\n" % figura_path)
+            f.write("\\includegraphics[width=0.6\\textwidth]{%s}\n" % figura_path)
             f.write("\\end{center}\n")
             f.write("\\vspace{0.5cm}\n")
+
+            f.write("\\begin{center}\n")
+            cm_path = "../" + row["Matriz Confusion"].replace("\\", "/")
+            f.write("\\includegraphics[width=0.52\\textwidth]{%s}\n" % cm_path)
+            f.write("\\end{center}\n")
+
             f.write("\\textbf{Reporte detallado:}\\\\\n")
             f.write("\\begin{verbatim}\n")
             f.write(row["Detalle"])
             f.write("\n\\end{verbatim}\n")
+
             f.write("\\newpage\n")
-        
         f.write("\\end{document}\n")
     print(f"✅ Reporte LaTeX generado en '{output_file}'")
 
