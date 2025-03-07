@@ -1,3 +1,7 @@
 .venv/
+__pycache__/
 out/
 experiments/
+results/
+feature_contribution_results/
+*.png
