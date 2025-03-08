@@ -285,11 +285,11 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
     
     def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
         """
-        # Verificar y logear la configuración
-        logger.info(f"Detector estadístico de régimen inicializado con {len(self.regimes)} regímenes: {list(self.regimes.keys())}")
-        logger.debug(f"Umbrales de regímenes: {self.regimes}")
-    
-    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
+        Actualiza la detección de régimen con nuevos datos.
+        
+        Args:
+            data_point: Nuevo punto de datos
+            
         Returns:
             Régimen actual detectado
         """
@@ -300,12 +300,8 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
         # Si es un lote de datos, procesar cada punto
         if data_point.ndim > 1 and data_point.shape[0] > 1:
             # Procesar todo el lote
-        Determina el régimen basado en estadísticas calculadas.
-        
-        Args:
-            mean_value: Valor medio calculado
-            std_value: Desviación estándar calculada
-            
+            for point in data_point:
+                self.data_window.append(point)
         else:
             # Un solo punto
             if data_point.ndim > 1:
@@ -338,8 +334,6 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
             std_value: Desviación estándar calculada
             
         Returns:
-            Diccionario con estadísticas (mean, std, min, max)
-        """
             Nombre del régimen detectado
         """
         # Log current statistics for debugging
@@ -368,6 +362,8 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
         # if no match is found rather than always choosing default
         logger.debug(f"No matching regime found, maintaining {self.current_regime}")
         return self.current_regime
+
+
 class TimeBasedRegimeDetector(BaseRegimeDetector):
     """
     Detector de régimen basado en patrones temporales.
@@ -420,7 +416,7 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
     
     def __init__(self, name: str = "clustering_regime_detector", 
                  config_override: Dict = None,
-                 n_clusters: int = 3):
+                 n_clusters: int = None):
         """
         Inicializa el detector de régimen basado en clustering.
         
@@ -431,9 +427,10 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
         """
         super().__init__(name, config_override)
         
-        # Parámetros de clustering
-        self.n_clusters = n_clusters
-        self.cluster_model = KMeans(n_clusters=n_clusters, random_state=42)
+        # Parámetros de clustering desde la configuración central
+        clustering_config = self.detector_config.clustering
+        self.n_clusters = n_clusters if n_clusters is not None else clustering_config.get("n_clusters", 3)
+        self.cluster_model = KMeans(n_clusters=self.n_clusters, random_state=42)
         self.is_fitted = False
         
         # Mapeo de clusters a nombres de regímenes desde configuración
