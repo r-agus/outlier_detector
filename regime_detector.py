@@ -269,96 +269,13 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
         """
         super().__init__(name, config_override)
         
-        # Definir regímenes predeterminados si no se proporcionan
-        self.regimes = regimes if regimes is not None else {
-            "low_activity": {
-                "max_mean": 0.3,
-                "max_std": 0.2
-            },
-            "normal": {
-                "min_mean": 0.3,
-                "max_mean": 0.7,
-                "min_std": 0.2,
-                "max_std": 0.5
-            },
-            "high_activity": {
-                "min_mean": 0.7,
-                "min_std": 0.5
-            }
-        }
+        # Usar regímenes de la configuración central o los proporcionados explícitamente
+        self.regimes = regimes if regimes is not None else self.detector_config.statistical_regimes
         
-        # Ventana para estadísticas
-        self.window_size = config.adaptation.sliding_window.get("size", 100)
-        self.data_window = deque(maxlen=self.window_size)
-        
-        # Estabilidad de régimen (para evitar cambios muy frecuentes)
-        self.min_regime_duration = 10  # segundos mínimos en un régimen antes de cambiar
-        
-        logger.info(f"Detector estadístico de régimen inicializado con {len(self.regimes)} regímenes")
-    
-    def add_regime(self, regime_name: str, limits: Dict[str, float]) -> None:
-        """
-        Añade un nuevo régimen con sus límites estadísticos.
-        
-        Args:
-            regime_name: Nombre del nuevo régimen
-            limits: Diccionario con límites estadísticos (min_mean, max_mean, min_std, max_std, etc.)
-        """
-        self.regimes[regime_name] = limits
-        logger.info(f"Añadido régimen '{regime_name}' con límites {limits}")
-    
-    def detect(self, data: np.ndarray) -> str:
-        """
-        Detecta el régimen basado en estadísticas de los datos.
-        
-        Args:
-            data: Datos recientes para analizar
-            
-        Returns:
-            Nombre del régimen detectado
-        """
-        # Actualizar ventana de datos
-        for point in data:
-            if len(point.shape) == 0 or point.shape[0] == 1:  # Punto único
-                self.data_window.append(point)
-            else:
-                for p in point:  # Múltiples puntos
-                    self.data_window.append(p)
-        
-        # Si no hay suficientes datos, mantener régimen actual
-        if len(self.data_window) < self.window_size // 2:
-            return self.current_regime
-        
-        # Calcular estadísticas de la ventana
-        window_array = np.array(self.data_window)
-        window_mean = np.mean(window_array)
-        window_std = np.std(window_array)
-        
-        # Verificar si hemos estado en el régimen actual por suficiente tiempo
-        if time.time() - self.last_change_time < self.min_regime_duration:
-            return self.current_regime
-        
-        # Determinar régimen basado en estadísticas
-        for regime_name, limits in self.regimes.items():
-            matches = True
-            
-            # Verificar límites de media
-            if "min_mean" in limits and window_mean < limits["min_mean"]:
-                matches = False
-            if "max_mean" in limits and window_mean > limits["max_mean"]:
-                matches = False
-                
-            # Verificar límites de desviación estándar
-            if "min_std" in limits and window_std < limits["min_std"]:
-                matches = False
-            if "max_std" in limits and window_std > limits["max_std"]:
-                matches = False
-            
-            if matches:
                 return regime_name
         
-        # Si ningún régimen definido coincide, mantener el actual
-        return self.current_regime
+        self.data_window = deque(maxlen=self.window_size)
+        
     
     def get_statistics(self) -> Dict[str, float]:
         """
