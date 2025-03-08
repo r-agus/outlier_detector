@@ -888,7 +888,7 @@ if __name__ == "__main__":
     print("\n1. Generando datos sintéticos con cambios de régimen...")
     
     # Time parameters
-    n_points_per_regime = 300
+    n_points_per_regime = 200
     n_features = 3
     total_points = n_points_per_regime * 3
     
@@ -1092,18 +1092,6 @@ if __name__ == "__main__":
     
     plt.tight_layout()
     
-    # Summary plot - compare all detectors regime changes
-    plt.figure(figsize=(15, 8))
-    #plt.title("Comparación de Detección de Regímenes", fontsize=14)
-    
-    # Define regime mapping for consistent coloring
-    regime_colors = {
-        'low_activity': 'blue',
-        'normal': 'green',
-        'high_activity': 'red',
-        'default': 'purple'
-    }
-    
     # For each detector, calculate detection accuracy
     accuracy_stats = {}
     for i, detector in enumerate(detectors):
@@ -1121,48 +1109,17 @@ if __name__ == "__main__":
         matches = sum(1 for i, r in enumerate(regimes) if i < len(ground_truth) and r == ground_truth[i])
         accuracy = matches / len(ground_truth) if ground_truth else 0
         accuracy_stats[detector_name] = accuracy
-        
-        # Plot regimes for this detector
-        plt.subplot(len(detectors), 1, i+1)
-        
-        # Create a continuous color map for the detector's regimes
-        colors = []
-        for regime in regimes:
-            colors.append(regime_colors.get(regime, regime_colors['default']))
             
         # Create step plot with colored segments
         indices = list(range(len(regimes)))
-        plt.step(indices, [i] * len(indices), where='post', color='black', alpha=0.2)
         
         # Add colored background segments for each regime
         prev_idx = 0
         prev_regime = regimes[0]
         for idx, regime in enumerate(regimes[1:], 1):
             if regime != prev_regime:
-                plt.axvspan(prev_idx, idx, alpha=0.3, color=regime_colors.get(prev_regime, regime_colors['default']))
                 prev_idx = idx
-                prev_regime = regime
-                
-        # Last segment
-        plt.axvspan(prev_idx, len(regimes), alpha=0.3, color=regime_colors.get(prev_regime, regime_colors['default']))
-        
-        # Add vertical lines for true regime changes
-        plt.axvline(x=n_points_per_regime, color='k', linestyle='--', alpha=0.7)
-        plt.axvline(x=n_points_per_regime*2, color='k', linestyle='--', alpha=0.7)
-        
-        plt.title(f"{detector_name} - Precisión: {accuracy:.2%}")
-        plt.yticks([])  # Hide y-axis
-        
-        if i == len(detectors) - 1:
-            plt.xlabel("Índice de Muestra")
-    
-    # Create legend
-    handles = [plt.Rectangle((0,0),1,1, color=color, alpha=0.3) 
-              for regime, color in regime_colors.items()]
-    labels = list(regime_colors.keys())
-    plt.figlegend(handles, labels, loc='upper right', bbox_to_anchor=(0.95, 0.95))
-    
-    plt.tight_layout()
+                prev_regime = regime    
     
     # =========================================================================
     # 6. RESULTS ANALYSIS - Print summary statistics
