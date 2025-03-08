@@ -90,6 +90,15 @@ class ThresholdConfig:
         }
     })
     meta: Dict[str, Any] = field(default_factory=lambda: {"monitor_interval": 60, "adjustment_factor": 0.1})
+    
+    # Mapping de regímenes a estrategias de umbral
+    regime_threshold_mapping: Dict[str, str] = field(default_factory=lambda: {
+        "high_activity": "probabilistic",
+        "low_activity": "moving_stats",
+        "normal": "meta_threshold",
+        # Otros regímenes pueden añadirse aquí con sus estrategias correspondientes
+        "default": "meta_threshold"  # Estrategia por defecto para regímenes no mapeados
+    })
 
 
 # ---------------------------
