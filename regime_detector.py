@@ -653,9 +653,9 @@ class HybridRegimeDetector(BaseRegimeDetector):
             except Exception as e:
                 logger.error(f"Error al entrenar {detector.name}: {str(e)}")
     
-    def detect(self, data: np.ndarray) -> str:
+    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
         """
-        Detecta el régimen usando un enfoque híbrido con votación ponderada.
+        Actualiza la detección de régimen combinando múltiples estrategias.
         
         Args:
             data_point: Nuevo punto de datos
@@ -693,34 +693,66 @@ class HybridRegimeDetector(BaseRegimeDetector):
         
         # Actualizar cada detector y obtener su régimen
         for detector in self.detectors:
-            detector_name = detector.name
-            weight = self.weights.get(detector_name, 0.0)
-            
-            if weight > 0:
-                regime = detector.detect(data)
-                if regime in regime_votes:
-                    regime_votes[regime] += weight
-                else:
-                    regime_votes[regime] = weight
+            try:
+                detector_name = detector.name.split('_')[0]  # Obtener parte base del nombre
+                regime = detector.update(data_point)
+                
+                # Inicializar contador si no existe
+                if regime not in regimes:
+                    regimes[regime] = 0
+                
+                # Añadir voto ponderado
+                regimes[regime] += self.weights.get(detector_name, 1.0)
+                logger.debug(f"Detector {detector_name} votó por régimen: {regime} con peso {self.weights.get(detector_name, 1.0)}")
+                
+            except Exception as e:
+                logger.error(f"Error al actualizar detector {detector.name}: {str(e)}")
         
-        # Sin predicciones, mantener régimen actual
-        if not regime_votes:
+        # Si no hay votos, mantener régimen actual
+        if not regimes:
             return self.current_regime
         
-        # Encontrar el régimen con más votos
-        total_weight = sum(regime_votes.values())
-        winning_regime = max(regime_votes.items(), key=lambda x: x[1])
-        confidence = winning_regime[1] / total_weight
+        # Determinar régimen ganador
+        sorted_regimes = sorted(regimes.items(), key=lambda x: x[1], reverse=True)
+        winner = sorted_regimes[0][0]
         
-        # Añadir a ventana de estabilidad
-        self.stability_window.append(winning_regime[0])
+        # Calculate confidence level
+        total_weight = sum(regimes.values())
+        confidence = sorted_regimes[0][1] / total_weight if total_weight > 0 else 0
+        logger.debug(f"Régimen ganador: {winner} con confianza {confidence:.2f}")
         
-        # Si el régimen ganador tiene confianza suficiente o 
-        # ha sido consistente en las últimas detecciones
-        if (confidence >= self.min_confidence or 
-            self.stability_window.count(winning_regime[0]) >= len(self.stability_window) * 0.7):
+        # Add to stability window
+        self.stability_window.append(winner)
+        
+        # Check if winning regime appears enough times in stability window
+        if len(self.stability_window) >= 3:
+            counts = {}
+            for r in self.stability_window:
+                if r not in counts:
+                    counts[r] = 0
+                counts[r] += 1
             
-            detected_regime = winning_regime[0]
+            most_common = max(counts.items(), key=lambda x: x[1])
+            stability_confidence = most_common[1] / len(self.stability_window)
+            
+            # If stable enough, use most common regime
+            if stability_confidence >= 0.6:  # At least 60% agreement
+                winner = most_common[0]
+                logger.debug(f"Usando régimen estable: {winner} con confianza {stability_confidence:.2f}")
+            
+        # Verificar si hay que actualizar y notificar cambios
+        return self._check_and_update_regime(winner)
+    
+    @property
+    def data_window(self):
+        """
+        Property that provides access to the data window.
+        Returns either the local window or the statistical detector's window.
+        """
+        if hasattr(self, '_data_window') and self._data_window:
+            return self._data_window
+        elif hasattr(self.statistical_detector, 'data_window'):
+            return self.statistical_detector.data_window
         else:
             # Fallback to avoid errors
             if not hasattr(self, '_data_window'):
