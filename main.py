@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import List, Tuple
 
 # Importar componentes del sistema
-from config import load_config_from_json
+from config import load_config_from_json, config
 from anomaly_detector import AnomalyDetector, AnomalyDetectionResult
 
 # Configuración de logging
@@ -1030,40 +1030,39 @@ def demo_real_time_simulation() -> None:
             lambda new_regime, old_regime: logger.info(f"CAMBIO DE RÉGIMEN: {old_regime} -> {new_regime}")
         )
         
-        # Setup the figure and axes in a simpler way
+        # Setup figure and axes
         plt.style.use('dark_background')
         fig = plt.figure(figsize=(12, 8))
-        ax1 = fig.add_subplot(211)  # Use add_subplot instead of subplots
+        ax1 = fig.add_subplot(211)
         ax2 = fig.add_subplot(212)
-        fig.suptitle("Simulación de Detección de Anomalías en Tiempo Real", fontsize=16)
+        fig.suptitle("Simulación de Detección de Anomalías en Tiempo Real (Ensemble Voting)", fontsize=16)
         
-        # Variable to indicate if animation should continue
+        # Control variables
         animation_active = True
-        
-        # Variable for auto/manual regime control
-        auto_regime = True
         
         # Clase para mantener el estado de la animación
         class AnimationState:
             def __init__(self):
                 self.window_size = 100
-                # Initialize all collections as deques with same maxlen
+                # Initialize collections
                 self.visible_data = collections.deque(maxlen=self.window_size)
                 self.visible_scores = collections.deque(maxlen=self.window_size)
                 self.visible_thresholds = collections.deque(maxlen=self.window_size)
-                self.visible_labels = collections.deque(maxlen=self.window_size)  # Ground truth labels
+                self.visible_labels = collections.deque(maxlen=self.window_size)
+                self.visible_regimes = collections.deque(maxlen=self.window_size)
                 
-                # Initialize with some data to start with
+                # Initialize with some data
                 for _ in range(20):
                     self.visible_data.append(0.0)
                     self.visible_scores.append(0.0)
                     self.visible_thresholds.append(0.0)
-                    self.visible_labels.append(1)  # Default to normal
+                    self.visible_labels.append(1)
+                    self.visible_regimes.append("normal")
                 
                 # Tracking for visualization
-                self.true_positives = []      # List of indices of correctly detected anomalies
-                self.false_positives = []     # List of indices of false alarms
-                self.false_negatives = []     # List of indices of missed anomalies
+                self.true_positives = []
+                self.false_positives = []
+                self.false_negatives = []
                 
                 # Metrics tracking
                 self.sim_index = train_size
@@ -1073,7 +1072,7 @@ def demo_real_time_simulation() -> None:
                 self.total_false_positives = 0
                 self.total_false_negatives = 0
                 self.points_processed = 0
-                self.current_regime = "normal"
+                self.current_regime = config.regime_detector.default_regime
         
         # Crear estado de animación
         state = AnimationState()
@@ -1109,17 +1108,16 @@ def demo_real_time_simulation() -> None:
         ax2.legend(loc="upper right", fontsize=8)
         ax2.grid(True, alpha=0.3)
         
-        # Stats text as a plain text object instead of using fig.text
+        # Text displays
         stats_text = ax1.text(0.02, 0.95, "", transform=ax1.transAxes, fontsize=9,
                            color='white', ha='left', va='top')
         
-        # Add regime strategy display
-        regime_strategy_text = ax1.text(0.02, 0.85, f"Detector: {regime_detector_strategy.name}", 
-                                    transform=ax1.transAxes, fontsize=9,
-                                    color='yellow', ha='left', va='top',
-                                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.4))
+        # Add prominent regime display
+        regime_text = fig.text(0.5, 0.01, "Régimen: Normal", 
+                            ha='center', fontsize=14, color='yellow',
+                            bbox=dict(boxstyle='round', facecolor='black', alpha=0.7))
         
-        # Track figure if it's closed
+        # Track figure if closed
         def on_close(event):
             nonlocal animation_active
             animation_active = False
@@ -1129,40 +1127,39 @@ def demo_real_time_simulation() -> None:
         
         # Info message about regime configuration
         logger.info(f"Usando configuración de regímenes a umbrales: {config.threshold.regime_threshold_mapping}")
+        logger.info(f"Regímenes definidos: {list(config.regime_detector.statistical_regimes.keys())}")
         
-        # Función para actualizar la visualización - más simple y robusta
+        # Animation update function
         def update(frame):
             # Check if animation should stop
             if not animation_active or not plt.fignum_exists(fig.number):
                 return
                 
-            # Check if we've reached the end of data
+            # Check if end of data reached
             if state.sim_index >= len(ts_data):
                 stats_text.set_text("Simulación completada")
                 return
             
             # Process new data point
             current_point = ts_data[state.sim_index]
-            current_label = ts_labels[state.sim_index]  # Ground truth label
+            current_label = ts_labels[state.sim_index]
             
-            # Use regime detector if auto mode is on
-            if auto_regime:
-                regime_detector_strategy.update(current_point)
-                state.current_regime = regime_detector_strategy.get_current_regime()
+            # Actualizar detector de régimen con datos actuales
+            current_regime = regime_detector_strategy.update(current_point)
+            state.current_regime = current_regime
+            state.visible_regimes.append(current_regime)
             
-            # Proceed with anomaly detection
+            # Debug de régimen
+            logger.debug(f"Datos: {current_point}, Régimen actual: {current_regime}")
+            
+            # Proceed with anomaly detection - SISTEMA DE VOTACIÓN
             result = detector.detect(current_point, explain=False)
             
-            # Update state
-            state.points_processed += 1
-            if not auto_regime:  # Keep current manual regime if not in auto mode
-                result.regime = state.current_regime
-            else:
-                # Update regime information from detector result if in auto mode
-                state.current_regime = result.regime
+            # Override result regime with the one from our regime detector
+            result.regime = state.current_regime
             
             # Update history
-            state.visible_data.append(current_point[0])  # First feature
+            state.visible_data.append(current_point[0])
             state.visible_scores.append(result.anomaly_score)
             state.visible_thresholds.append(result.threshold)
             state.visible_labels.append(current_label)
@@ -1190,7 +1187,7 @@ def demo_real_time_simulation() -> None:
             state.false_positives = [i-1 for i in state.false_positives]
             state.false_negatives = [i-1 for i in state.false_negatives]
             
-            # Add the new point to appropriate list
+            # Add new point to appropriate list
             if is_true_anomaly and is_detected_anomaly:
                 state.true_positives.append(current_idx)
                 state.total_true_positives += 1
@@ -1208,7 +1205,9 @@ def demo_real_time_simulation() -> None:
             visible_labels = list(state.visible_labels)
             x_indices = list(range(len(visible_data)))
             
-            # SAFE UPDATE OF PLOTS (with try-except for each component)
+            state.points_processed += 1
+            
+            # SAFE UPDATE OF PLOTS (with try-except)
             try:
                 # Update line plots
                 line1.set_data(x_indices, visible_data)
@@ -1218,14 +1217,14 @@ def demo_real_time_simulation() -> None:
                 # Find true anomaly positions
                 true_anomaly_indices = [i for i, label in enumerate(visible_labels) if label == -1]
                 
-                # Update scatter plots if needed
+                # Update scatter plots
                 if true_anomaly_indices:
                     true_anom_marker.set_offsets(
                         [[i, visible_data[i]] for i in true_anomaly_indices if i < len(visible_data)])
                 else:
                     true_anom_marker.set_offsets(np.empty((0, 2)))
                 
-                # Update TP points (correctly detected anomalies)
+                # Update TP points
                 valid_tp = [i for i in state.true_positives if 0 <= i < len(visible_data)]
                 if valid_tp:
                     tp_scatter1.set_offsets([[i, visible_data[i]] for i in valid_tp])
@@ -1234,7 +1233,7 @@ def demo_real_time_simulation() -> None:
                     tp_scatter1.set_offsets(np.empty((0, 2)))
                     tp_scatter2.set_offsets(np.empty((0, 2)))
                 
-                # Update FP points (false positives)
+                # Update FP points
                 valid_fp = [i for i in state.false_positives if 0 <= i < len(visible_data)]
                 if valid_fp:
                     fp_scatter1.set_offsets([[i, visible_data[i]] for i in valid_fp])
@@ -1243,7 +1242,7 @@ def demo_real_time_simulation() -> None:
                     fp_scatter1.set_offsets(np.empty((0, 2)))
                     fp_scatter2.set_offsets(np.empty((0, 2)))
                 
-                # Update FN points (missed anomalies)
+                # Update FN points
                 valid_fn = [i for i in state.false_negatives if 0 <= i < len(visible_data)]
                 if valid_fn:
                     fn_scatter1.set_offsets([[i, visible_data[i]] for i in valid_fn])
@@ -1269,7 +1268,6 @@ def demo_real_time_simulation() -> None:
                 # Update statistics text
                 stats_info = (
                     f"Puntos: {state.points_processed}   "
-                    f"Régimen: {state.current_regime}\n"
                     f"Anomalías Reales: {state.total_true_anomalies}   "
                     f"Detectadas: {state.total_anomalies_detected}\n"
                     f"TP: {state.total_true_positives}   "
@@ -1281,12 +1279,19 @@ def demo_real_time_simulation() -> None:
                 )
                 stats_text.set_text(stats_info)
                 
-                # Update regime strategy text to show mode (auto/manual)
-                mode_str = "Auto" if auto_regime else "Manual"
-                regime_strategy_text.set_text(f"Detector: {regime_detector_strategy.name} ({mode_str})")
+                # Update regime text with color coding based on regime
+                regime_color = {
+                    "normal": "white", 
+                    "low_activity": "cyan", 
+                    "high_activity": "orange"
+                }.get(state.current_regime, "yellow")
                 
-                # Update title
-                ax1.set_title(f"Datos de Serie Temporal - Régimen: {state.current_regime}")
+                # También mostrar el score y threshold para debug
+                regime_text.set_text(f"Régimen: {state.current_regime} | Score: {result.anomaly_score:.3f} | Umbral: {result.threshold:.3f}")
+                regime_text.set_color(regime_color)
+                
+                # Update title to show ensemble voting instead of IForest
+                ax1.set_title(f"Datos en Tiempo Real - Detector: Ensemble Voting (IForest + LOF + OCSVM)")
                 
             except Exception as e:
                 logger.error(f"Error updating plots: {str(e)}")
@@ -1294,33 +1299,19 @@ def demo_real_time_simulation() -> None:
             # Increment counter
             state.sim_index += 1
             
-            # Manually redraw the figure - safer than using blit
+            # Manually redraw figure
             try:
                 fig.canvas.draw_idle()
             except Exception as e:
                 logger.error(f"Error redrawing figure: {str(e)}")
         
-        # Add control buttons in a separate subplot
+        # Add control buttons - minimal controls, just stop/pause
         button_height = 0.04
         button_width = 0.15
-        button_spacing = 0.01
         
-        # Create button axes - Add Stop button
+        # Create Stop button
         stop_axes = plt.axes([0.85, 0.01, button_width, button_height])
         stop_button = Button(stop_axes, 'Detener', color='lightgray', hovercolor='red')
-        
-        # Create regime control buttons
-        low_regime_axes = plt.axes([0.1, 0.01, button_width, button_height])
-        low_regime_button = Button(low_regime_axes, 'Low Activity', color='lightblue', hovercolor='cyan')
-        
-        normal_regime_axes = plt.axes([0.1 + button_width + button_spacing, 0.01, button_width, button_height])
-        normal_regime_button = Button(normal_regime_axes, 'Normal', color='lightgreen', hovercolor='lime')
-        
-        high_regime_axes = plt.axes([0.1 + 2 * (button_width + button_spacing), 0.01, button_width, button_height])
-        high_regime_button = Button(high_regime_axes, 'High Activity', color='salmon', hovercolor='red')
-        
-        auto_regime_axes = plt.axes([0.1 + 3 * (button_width + button_spacing), 0.01, button_width, button_height])
-        auto_regime_button = Button(auto_regime_axes, 'Auto', color='gold', hovercolor='yellow')
         
         def stop_animation(event):
             nonlocal animation_active
@@ -1332,47 +1323,20 @@ def demo_real_time_simulation() -> None:
             except Exception as e:
                 logger.error(f"Error stopping animation: {str(e)}")
         
-        def set_low_activity(event):
-            nonlocal auto_regime
-            auto_regime = False
-            state.current_regime = "low_activity"
-            logger.info("Régimen establecido manualmente: low_activity")
-        
-        def set_normal(event):
-            nonlocal auto_regime
-            auto_regime = False
-            state.current_regime = "normal"
-            logger.info("Régimen establecido manualmente: normal")
-        
-        def set_high_activity(event):
-            nonlocal auto_regime
-            auto_regime = False
-            state.current_regime = "high_activity"
-            logger.info("Régimen establecido manualmente: high_activity")
-        
-        def toggle_auto(event):
-            nonlocal auto_regime
-            auto_regime = True
-            logger.info("Detección automática de régimen activada")
-        
-        # Connect button click events
+        # Connect button events
         stop_button.on_clicked(stop_animation)
-        low_regime_button.on_clicked(set_low_activity)
-        normal_regime_button.on_clicked(set_normal)
-        high_regime_button.on_clicked(set_high_activity)
-        auto_regime_button.on_clicked(toggle_auto)
         
-        # Adjust layout to avoid warning
-        fig.tight_layout(rect=[0, 0.08, 1, 0.95])  # Leave space for buttons at bottom
+        # Adjust layout
+        fig.tight_layout(rect=[0, 0.06, 1, 0.95])  # Leave space for buttons at bottom
         
-        # Create animation using a simpler and more robust approach (no blit)
+        # Create animation
         anim = FuncAnimation(fig, update, interval=100, blit=False, cache_frame_data=False)
         
         logger.info("Iniciando bucle de visualización...")
         
-        # Use a more robust show approach
+        # Use a robust show approach
         try:
-            plt.show(block=True)  # Use blocking mode to prevent premature exit
+            plt.show(block=True)
         except KeyboardInterrupt:
             animation_active = False
             logger.info("Simulación interrumpida por el usuario.")
