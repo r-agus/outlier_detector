@@ -129,7 +129,7 @@ class ProcessingConfig:
         "complex_layer": ["deep_learning"]
     })
     parallelization: Dict[str, Any] = field(default_factory=lambda: {
-        "num_threads": 4,
+        "num_threads": 10,
         "distributed_system": "spark"  # Opciones: "spark", "kafka", "none", etc.
     })
 
@@ -150,6 +150,72 @@ class VisualizationConfig:
 
 
 # ---------------------------
+# Configuración de Detección de Regímenes
+# ---------------------------
+@dataclass
+class RegimeDetectorConfig:
+    """
+    Configuración para los detectores de regímenes operacionales.
+    """
+    # Configuración general
+    default_regime: str = "normal"
+    min_regime_duration: int = 2  # segundos mínimos en un régimen antes de cambiar
+    window_size: int = 100  # tamaño de la ventana para análisis estadístico
+    
+    # Umbrales estadísticos para diferentes regímenes
+    statistical_regimes: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
+        "low_activity": {
+            "max_mean": 0.3,
+            "max_std": 0.2
+        },
+        "normal": {
+            "min_mean": 0.3,
+            "max_mean": 0.7,
+            "min_std": 0.2,
+            "max_std": 0.5
+        },
+        "high_activity": {
+            "min_mean": 0.7,
+            "min_std": 0.5
+        }
+    })
+    
+    # Configuración para detector basado en tiempo
+    hour_regimes: Dict[int, str] = field(default_factory=lambda: {
+        # Madrugada (00-06): baja actividad
+        0: "low_activity", 1: "low_activity", 2: "low_activity", 
+        3: "low_activity", 4: "low_activity", 5: "low_activity",
+        # Mañana (06-12): actividad normal
+        6: "normal", 7: "normal", 8: "normal", 
+        9: "normal", 10: "normal", 11: "normal",
+        # Tarde (12-18): alta actividad
+        12: "high_activity", 13: "high_activity", 14: "high_activity", 
+        15: "high_activity", 16: "high_activity", 17: "high_activity",
+        # Noche (18-00): actividad normal a baja
+        18: "normal", 19: "normal", 20: "normal", 
+        21: "normal", 22: "low_activity", 23: "low_activity"
+    })
+    
+    # Configuración para detector híbrido
+    hybrid_weights: Dict[str, float] = field(default_factory=lambda: {
+        "statistical": 1.0,
+        "time_based": 0.8,
+        "clustering": 0.6
+    })
+    
+    # Parámetros para clustering
+    clustering: Dict[str, Any] = field(default_factory=lambda: {
+        "n_clusters": 3,
+        "refit_interval": 1000,
+        "cluster_regime_mapping": {
+            0: "low_activity",
+            1: "normal",
+            2: "high_activity"
+        }
+    })
+
+
+# ---------------------------
 # Configuración Global
 # ---------------------------
 @dataclass
@@ -164,6 +230,7 @@ class Config:
     adaptation: AdaptationConfig = field(default_factory=AdaptationConfig)
     processing: ProcessingConfig = field(default_factory=ProcessingConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
+    regime_detector: RegimeDetectorConfig = field(default_factory=RegimeDetectorConfig)
 
     def update_from_dict(self, config_updates: Dict[str, Any]):
         """
