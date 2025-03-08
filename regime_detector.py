@@ -162,30 +162,90 @@ class BaseRegimeDetector(ABC):
         Actualiza el detector con nuevos datos y determina el régimen actual.
         
         Args:
-            data: Nuevos datos para analizar
+            training_data: Datos históricos para entrenamiento
             
         Returns:
-            Régimen actual después de la actualización
+            None
+            
+        Raises:
+            ValueError: Si los datos de entrenamiento son inválidos
         """
-        detected_regime = self.detect(data)
-        
-        # Si se detecta un cambio de régimen
-        if detected_regime != self.current_regime:
-            # Actualizar regímenes
-            self.previous_regime = self.current_regime
-            self.current_regime = detected_regime
-            self.last_change_time = time.time()
-            self.regime_history.append((self.last_change_time, detected_regime))
+        # Validate training data
+        if training_data is None:
+            logger.warning(f"No training data provided to {self.name}")
+            return
             
-            # Notificar a través de callbacks
-            for callback in self.regime_change_callbacks:
-                try:
-                    callback(detected_regime, self.previous_regime)
-                except Exception as e:
-                    logger.error(f"Error en callback de cambio de régimen: {str(e)}")
+        if not isinstance(training_data, np.ndarray):
+            try:
+                training_data = np.array(training_data)
+            except Exception as e:
+                logger.error(f"Failed to convert training_data to numpy array: {str(e)}")
+                raise ValueError("Training data must be convertible to numpy array")
             
-            logger.info(f"Régimen actualizado a '{detected_regime}'")
+        if len(training_data) == 0:
+            logger.warning(f"Empty training data provided to {self.name}")
+            return
+            
+        try:
+            # Flatten 3D+ data to 2D for simpler processing
+            if training_data.ndim > 2:
+                original_shape = training_data.shape
+                n_samples = original_shape[0]
+                training_data = training_data.reshape(n_samples, -1)
+                logger.info(f"Reshaped training data from {original_shape} to {training_data.shape}")
+                
+            # Calculate basic statistics
+            self.reference_stats["mean"] = np.mean(training_data, axis=0)
+            self.reference_stats["std"] = np.std(training_data, axis=0)
+            self.reference_stats["min"] = np.min(training_data, axis=0)
+            self.reference_stats["max"] = np.max(training_data, axis=0)
+            self.reference_stats["n_samples"] = len(training_data)
+            
+            # Add initial data points to data window for immediate regime detection
+            if hasattr(self, 'data_window') and self.data_window is not None:
+                # Only take a subset if dataset is large
+                n_samples_to_store = min(len(training_data), self.detector_config.window_size)
+                for i in range(n_samples_to_store):
+                    self.data_window.append(training_data[i])
+            
+            # Mark as fitted
+            self.is_fitted = True
+            
+            logger.info(f"Base training completed for {self.name} with {len(training_data)} samples")
+            
+        except Exception as e:
+            logger.error(f"Error during base training for {self.name}: {str(e)}")
+            raise
         
+        return self
+    
+    def get_regime_duration(self) -> float:
+        """
+        Calcula cuánto tiempo lleva el sistema en el régimen actual.
+        
+        Returns:
+            Duración en segundos
+        """
+        return time.time() - self.last_change_time
+    
+    def get_regime_history(self) -> List[Tuple[float, str]]:
+        """
+        Obtiene el historial de regímenes con sus timestamps.
+        
+        Returns:
+            Lista de tuplas (timestamp, nombre_régimen)
+        """
+        return list(zip(self.timestamp_history, self.regime_history))
+    
+    def predict_next_regime(self) -> Optional[str]:
+        """
+        Intenta predecir el próximo régimen basado en patrones históricos.
+        Método base que puede ser sobrescrito por implementaciones específicas.
+        
+        Returns:
+            Nombre del régimen predicho o None si no se puede predecir
+        """
+        # Implementación por defecto: devuelve el régimen actual
         return self.current_regime
 
 
