@@ -283,21 +283,15 @@ class AnomalyDetector:
         Args:
             regime: Régimen actual
         """
-        # Adaptar según el régimen
-        if regime == "high_activity":
-            # En alta actividad, priorizar precisión sobre recall
-            self.threshold_manager.set_current_strategy("probabilistic")  # Más conservador
-            logger.info("Adaptando a régimen de alta actividad: umbral probabilístico")
-            
-        elif regime == "low_activity":
-            # En baja actividad, usar enfoque más sensible
-            self.threshold_manager.set_current_strategy("moving_stats")  # Más sensible
-            logger.info("Adaptando a régimen de baja actividad: umbral de estadísticas móviles")
-            
-        else:  # normal o cualquier otro
-            # Para régimen normal, usar el meta-umbral balanceado
-            self.threshold_manager.set_current_strategy("meta_threshold")
-            logger.info("Adaptando a régimen normal: meta-umbral")
+        # Obtener estrategia de umbral del mapping de configuración
+        threshold_strategy = config.threshold.regime_threshold_mapping.get(
+            regime, 
+            config.threshold.regime_threshold_mapping.get("default", "meta_threshold")
+        )
+        
+        # Establecer la estrategia obtenida de la configuración
+        self.threshold_manager.set_current_strategy(threshold_strategy)
+        logger.info(f"Adaptando a régimen '{regime}': umbral {threshold_strategy}")
     
     def set_feature_names(self, feature_names: List[str]) -> None:
         """
