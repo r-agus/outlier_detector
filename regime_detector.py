@@ -396,41 +396,27 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         Nota: Esta implementación ignora los datos, usa solo la hora del sistema.
         
         Args:
-            hour: Hora (0-23)
-            regime: Régimen a asignar
-        """
-        if hour < 0 or hour > 23:
-            raise ValueError("La hora debe estar entre 0 y 23")
-        
-        self.hour_regimes[hour] = regime
-        logger.info(f"Hora {hour} asignada al régimen '{regime}'")
-    
-    def set_weekday_modifier(self, weekday: int, modifier: str) -> None:
-        """
-        Establece el modificador de régimen para un día de la semana.
-        
-        Args:
-            weekday: Día de la semana (0=lunes, 6=domingo)
-            modifier: Modificador a asignar
-        """
-        if weekday < 0 or weekday > 6:
-            raise ValueError("El día de la semana debe estar entre 0 (lunes) y 6 (domingo)")
-        
-        self.weekday_modifiers[weekday] = modifier
-        logger.info(f"Día {weekday} asignado al modificador '{modifier}'")
-    
-    def add_special_regime(self, weekday: int, hour: int, regime: str) -> None:
-        """
-        Añade un régimen especial para una combinación específica de día y hora.
-        
-        Args:
-            weekday: Día de la semana (0=lunes, 6=domingo)
-            hour: Hora (0-23)
-            regime: Régimen especial a asignar
-        """
-        self.special_regimes[(weekday, hour)] = regime
-        logger.info(f"Régimen especial '{regime}' añadido para día {weekday}, hora {hour}")
             data_point: No utilizado, incluido para compatibilidad con la interfaz
+            
+        Returns:
+            Régimen actual detectado
+        """
+        # Obtener hora actual
+        current_time = datetime.now()
+        current_hour = current_time.hour
+        
+        # Determinar régimen basado en la hora
+        detected_regime = self.hour_regimes.get(current_hour, self.detector_config.default_regime)
+        
+        # Verificar si hay que actualizar y notificar cambios
+        return self._check_and_update_regime(detected_regime)
+
+
+class ClusteringRegimeDetector(BaseRegimeDetector):
+    """
+    Detector de régimen basado en clustering.
+    Agrupa los datos en diferentes modos de operación mediante algoritmos de clustering.
+    """
     
     def __init__(self, name: str = "clustering_regime_detector", 
                  config_override: Dict = None,
@@ -450,8 +436,16 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         self.cluster_model = KMeans(n_clusters=n_clusters, random_state=42)
         self.is_fitted = False
         
-        # Mapeo de clusters a nombres de regímenes
-        self.cluster_to_regime = {}
+        # Mapeo de clusters a nombres de regímenes desde configuración
+        self.cluster_to_regime = clustering_config.get("cluster_regime_mapping", {})
+        
+        # If no mapping provided, create a default mapping
+        if not self.cluster_to_regime:
+            self.cluster_to_regime = {
+                0: "low_activity",
+                1: "normal",
+                2: "high_activity"
+            }
         
         # Ventana de datos para adaptación continua
         self.window_size = config.adaptation.sliding_window.get("size", 100)
@@ -460,11 +454,11 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         # Centroides de los clusters
         self.centroids = None
         
-        # Período de reentrenamiento
-        self.refit_interval = 1000  # Puntos de datos entre reentrenamientos
+        # Período de reentrenamiento de la configuración
+        self.refit_interval = clustering_config.get("refit_interval", 1000)
         self.points_since_last_fit = 0
         
-        logger.info(f"Detector de régimen por clustering inicializado con {n_clusters} clusters")
+        logger.info(f"Detector de régimen por clustering inicializado con {self.n_clusters} clusters")
     
     def set_regime_names(self, cluster_to_regime: Dict[int, str]) -> None:
         """
@@ -473,16 +467,15 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         Args:
             cluster_to_regime: Mapeo de índices de cluster a nombres de régimen
         """
-        self.cluster_to_regime = cluster_to_regime
-        logger.info(f"Nombres de régimen establecidos: {cluster_to_regime}")
-        # Obtener hora actual
-        current_time = datetime.now()
-        current_hour = current_time.hour
-        
-        # Determinar régimen basado en la hora
-        detected_regime = self.hour_regimes.get(current_hour, self.detector_config.default_regime)
-            else:
-                train_data = data
+        if len(training_data) < self.n_clusters:
+            logger.warning(f"Insuficientes datos para clustering: {len(training_data)} puntos, {self.n_clusters} clusters")
+            return
+            
+        try:
+            # Reshape si es necesario
+            if training_data.ndim > 2:
+                n_samples = training_data.shape[0]
+                training_data = training_data.reshape(n_samples, -1)
             
             # Entrenar modelo
             self.cluster_model.fit(train_data)
