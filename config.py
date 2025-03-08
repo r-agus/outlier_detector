@@ -85,8 +85,8 @@ class ThresholdConfig:
         "default_threshold": 0.5,
         "regime_thresholds": {
             "normal": 0.5,
-            "peak": 0.7,
-            "off_peak": 0.4
+            "high_activity": 0.7,
+            "low_activity": 0.4
         }
     })
     meta: Dict[str, Any] = field(default_factory=lambda: {"monitor_interval": 60, "adjustment_factor": 0.1})

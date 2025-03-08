@@ -259,8 +259,8 @@ class ContextualThreshold(BaseThreshold):
         self.default_threshold = self.config.get("default_threshold", 0.5)
         self.regime_thresholds = self.config.get("regime_thresholds", {
             "normal": 0.5,
-            "peak": 0.7,
-            "off_peak": 0.4
+            "high_activity": 0.7,
+            "low_activity": 0.4
         })
         
         # Régimen actual
@@ -759,7 +759,7 @@ if __name__ == "__main__":
         # Simular cambio de régimen en el punto medio
         if i == len(all_scores) // 2:
             print("\nCambio de régimen detectado, ajustando umbral contextual...\n")
-            contextual.set_regime("peak")
+            contextual.set_regime("high_activity")
     
     # Visualizar resultados
     try:

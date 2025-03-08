@@ -296,20 +296,20 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         # Definir regímenes por hora del día (valores predeterminados)
         self.hour_regimes = {
             # Madrugada (00-06): baja actividad
-            0: "off_peak", 1: "off_peak", 2: "off_peak", 
-            3: "off_peak", 4: "off_peak", 5: "off_peak",
+            0: "low_activity", 1: "low_activity", 2: "low_activity", 
+            3: "low_activity", 4: "low_activity", 5: "low_activity",
             
             # Mañana (06-12): actividad creciente
             6: "normal", 7: "normal", 8: "normal", 
             9: "normal", 10: "normal", 11: "normal",
             
             # Tarde (12-18): alta actividad
-            12: "peak", 13: "peak", 14: "peak", 
-            15: "peak", 16: "peak", 17: "peak",
+            12: "high_activity", 13: "high_activity", 14: "high_activity", 
+            15: "high_activity", 16: "high_activity", 17: "high_activity",
             
             # Noche (18-00): actividad decreciente
             18: "normal", 19: "normal", 20: "normal", 
-            21: "normal", 22: "normal", 23: "off_peak"
+            21: "normal", 22: "normal", 23: "low_activity"
         }
         
         # Definir regímenes por día de la semana (0=lunes, 6=domingo)
@@ -398,12 +398,12 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         
         # Si es un día especial como fin de semana, puede modificar el régimen
         if weekday_modifier == "weekend":
-            if hour_regime == "peak":
-                return "weekend_peak"
+            if hour_regime == "high_activity":
+                return "weekend_high_activity"
             elif hour_regime == "normal":
                 return "weekend_normal"
             else:
-                return "weekend_off_peak"
+                return "weekend_low_activity"
         
         return hour_regime
 

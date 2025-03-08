@@ -528,6 +528,16 @@ def demo_regimes() -> None:
     """
     logger.info("Iniciando demostración de detección de regímenes")
     
+    # Verificar que los regímenes a usar estén en la configuración
+    regime_mapping = config.threshold.regime_threshold_mapping
+    logger.info(f"Configuración de mapeo de regímenes a umbrales: {regime_mapping}")
+    
+    # Usar nombres de regímenes consistentes con la configuración
+    # Los regímenes estándar son: "high_activity", "low_activity" y "normal"
+    low_regime = "low_activity"
+    normal_regime = "normal" 
+    high_regime = "high_activity"
+    
     # Generar datos con cambios de régimen explícitos
     # Para este ejemplo, generaremos tres regímenes distintos
     n_points_per_regime = 300
@@ -725,6 +735,132 @@ def demo_regimes() -> None:
         logger.error(f"Error al visualizar resultados: {e}")
 
 
+def demo_with_custom_config() -> None:
+    """
+    Demostración de personalización de configuración para mapeo de regímenes a umbrales.
+    """
+    logger.info("Iniciando demostración con configuración personalizada")
+    
+    # Crear una configuración personalizada para el mapeo de regímenes
+    custom_config = {
+        "threshold": {
+            "regime_threshold_mapping": {
+                "normal": "meta_threshold",           # Régimen normal usa umbral meta (combinado)
+                "high_load": "probabilistic",         # Alta carga usa umbral probabilístico (más conservador)
+                "maintenance": "moving_stats",        # Mantenimiento usa estadísticas móviles (más sensible)
+                "startup": "contextual",              # Inicio utiliza umbral contextual
+                "default": "meta_threshold"           # Cualquier otro régimen usa meta-umbral
+            }
+        }
+    }
+    
+    # Generar datos sintéticos
+    data, labels, feature_names = generate_synthetic_data(
+        n_normal=800,
+        n_anomalies=40,
+        n_features=5
+    )
+    
+    # Dividir en entrenamiento y prueba
+    train_mask = labels == 1
+    train_data = data[train_mask][:600]  # Usar primeras 600 muestras normales para entrenar
+    test_data = np.vstack([
+        data[train_mask][600:],  # Resto de muestras normales para prueba
+        data[~train_mask]        # Todas las anomalías para prueba
+    ])
+    test_labels = np.hstack([
+        np.ones(len(data[train_mask][600:])),  # Etiquetas para muestras normales
+        -np.ones(np.sum(~train_mask))          # Etiquetas para anomalías
+    ])
+    
+    # Inicializar detector con configuración personalizada
+    logger.info("Inicializando detector con configuración personalizada")
+    detector = AnomalyDetector(config_override=custom_config)
+    
+    # Entrenar detector
+    detector.fit(train_data, feature_names=feature_names)
+    
+    # Simular diferentes regímenes
+    regimes = ["normal", "high_load", "maintenance", "startup"]
+    results = []
+    
+    # Procesar los mismos datos pero en diferentes regímenes simulados
+    batch_size = len(test_data) // len(regimes)
+    
+    for i, regime in enumerate(regimes):
+        start_idx = i * batch_size
+        end_idx = start_idx + batch_size if i < len(regimes) - 1 else len(test_data)
+        batch = test_data[start_idx:end_idx]
+        
+        logger.info(f"Simulando régimen {regime} para {len(batch)} puntos")
+        
+        # Forzar el régimen en el detector
+        detector.current_regime = regime
+        detector._adapt_detection_strategy(regime)
+        
+        # Procesar lote
+        batch_results = detector.process_batch(batch, explain_anomalies=True)
+        
+        # Verificar qué estrategia de umbral se usó
+        used_threshold = detector.threshold_manager.current_strategy
+        logger.info(f"Régimen: {regime} -> Estrategia de umbral: {used_threshold}")
+        
+        results.extend(batch_results)
+    
+    # Analizar resultados
+    predictions = [1 if not r.is_anomaly else -1 for r in results]
+    
+    from sklearn.metrics import confusion_matrix, classification_report
+    cm = confusion_matrix(test_labels, predictions, labels=[-1, 1])
+    report = classification_report(test_labels, predictions, labels=[-1, 1], target_names=["Anomalía", "Normal"])
+    
+    logger.info("\nRendimiento con configuración personalizada:")
+    logger.info(f"Anomalías reales: {np.sum(test_labels == -1)}, Anomalías detectadas: {np.sum(np.array(predictions) == -1)}")
+    logger.info("\nMatriz de confusión:")
+    logger.info(f"                  Predicho Anomalía    Predicho Normal")
+    logger.info(f"Real Anomalía     {cm[0][0]}                {cm[0][1]}")
+    logger.info(f"Real Normal       {cm[1][0]}                {cm[1][1]}")
+    logger.info("\nInforme de clasificación:")
+    logger.info(report)
+    
+    # Opcional: visualizar resultados
+    try:
+        # Graficar puntuaciones por régimen
+        plt.figure(figsize=(15, 10))
+        
+        # Separar por régimen
+        for i, regime in enumerate(regimes):
+            regime_results = [r for r in results if r.regime == regime]
+            if not regime_results:
+                continue
+                
+            # Obtener índices globales
+            start_idx = i * batch_size
+            indices = np.arange(start_idx, start_idx + len(regime_results))
+            
+            # Graficar
+            scores = [r.anomaly_score for r in regime_results]
+            thresholds = [r.threshold for r in regime_results]
+            
+            plt.plot(indices, scores, '-', label=f"Scores - {regime}")
+            plt.plot(indices, thresholds, '--', alpha=0.7, label=f"Umbral - {regime}")
+        
+        plt.title("Puntuaciones y Umbrales por Régimen con Configuración Personalizada")
+        plt.xlabel("Índice de muestra")
+        plt.ylabel("Puntuación")
+        plt.legend()
+        plt.grid(True)
+        
+        # Guardar gráfico
+        results_dir = os.path.join(os.getcwd(), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        plt.savefig(os.path.join(results_dir, "custom_config_regimes.png"))
+        logger.info(f"Gráfico guardado en {os.path.join(results_dir, 'custom_config_regimes.png')}")
+        
+    except Exception as e:
+        logger.error(f"Error al visualizar resultados: {e}")
+
+
 def demo_interactive() -> None:
     """
     Demostración interactiva donde el usuario puede probar puntos específicos.
@@ -806,6 +942,8 @@ def demo_real_time_simulation() -> None:
         import matplotlib.pyplot as plt
         import matplotlib as mpl
         from matplotlib.animation import FuncAnimation
+        from matplotlib.widgets import Button, RadioButtons
+        import regime_detector
         
         # Force a specific backend
         mpl.use('TkAgg')
@@ -824,9 +962,19 @@ def demo_real_time_simulation() -> None:
         train_size = len(ts_data) // 10       # 10% para entrenamiento
         train_data = ts_data[:train_size]
         
-        # Inicializar detector
+        # Inicializar detector y regime detector
         detector = AnomalyDetector()
         detector.fit(train_data, feature_names=feature_names)
+        
+        # Initialize a regime detector to use
+        regime_detector_strategy = regime_detector.StatisticalRegimeDetector(
+            name="statistical_regime",
+            regimes={
+                "low_activity": {"max_mean": 0.3, "max_std": 0.2},
+                "normal": {"min_mean": 0.3, "max_mean": 0.7, "min_std": 0.2, "max_std": 0.5},
+                "high_activity": {"min_mean": 0.7, "min_std": 0.5}
+            }
+        )
         
         # Setup the figure and axes in a simpler way
         plt.style.use('dark_background')
@@ -837,6 +985,9 @@ def demo_real_time_simulation() -> None:
         
         # Variable to indicate if animation should continue
         animation_active = True
+        
+        # Variable for auto/manual regime control
+        auto_regime = True
         
         # Clase para mantener el estado de la animación
         class AnimationState:
@@ -908,6 +1059,12 @@ def demo_real_time_simulation() -> None:
         stats_text = ax1.text(0.02, 0.95, "", transform=ax1.transAxes, fontsize=9,
                            color='white', ha='left', va='top')
         
+        # Add regime strategy display
+        regime_strategy_text = ax1.text(0.02, 0.85, f"Detector: {regime_detector_strategy.name}", 
+                                    transform=ax1.transAxes, fontsize=9,
+                                    color='yellow', ha='left', va='top',
+                                    bbox=dict(boxstyle='round', facecolor='black', alpha=0.4))
+        
         # Track figure if it's closed
         def on_close(event):
             nonlocal animation_active
@@ -915,6 +1072,9 @@ def demo_real_time_simulation() -> None:
             logger.info("Ventana de simulación cerrada.")
         
         fig.canvas.mpl_connect('close_event', on_close)
+        
+        # Info message about regime configuration
+        logger.info(f"Usando configuración de regímenes a umbrales: {config.threshold.regime_threshold_mapping}")
         
         # Función para actualizar la visualización - más simple y robusta
         def update(frame):
@@ -930,11 +1090,22 @@ def demo_real_time_simulation() -> None:
             # Process new data point
             current_point = ts_data[state.sim_index]
             current_label = ts_labels[state.sim_index]  # Ground truth label
+            
+            # Use regime detector if auto mode is on
+            if auto_regime:
+                regime_detector_strategy.update(current_point)
+                state.current_regime = regime_detector_strategy.get_current_regime()
+            
+            # Proceed with anomaly detection
             result = detector.detect(current_point, explain=False)
             
             # Update state
             state.points_processed += 1
-            state.current_regime = result.regime
+            if not auto_regime:  # Keep current manual regime if not in auto mode
+                result.regime = state.current_regime
+            else:
+                # Update regime information from detector result if in auto mode
+                state.current_regime = result.regime
             
             # Update history
             state.visible_data.append(current_point[0])  # First feature
@@ -1056,6 +1227,10 @@ def demo_real_time_simulation() -> None:
                 )
                 stats_text.set_text(stats_info)
                 
+                # Update regime strategy text to show mode (auto/manual)
+                mode_str = "Auto" if auto_regime else "Manual"
+                regime_strategy_text.set_text(f"Detector: {regime_detector_strategy.name} ({mode_str})")
+                
                 # Update title
                 ax1.set_title(f"Datos de Serie Temporal - Régimen: {state.current_regime}")
                 
@@ -1071,10 +1246,27 @@ def demo_real_time_simulation() -> None:
             except Exception as e:
                 logger.error(f"Error redrawing figure: {str(e)}")
         
-        # Añadir botón de parada
-        from matplotlib.widgets import Button
-        button_axes = fig.add_axes([0.85, 0.01, 0.1, 0.04])
-        stop_button = Button(button_axes, 'Detener', color='lightgray', hovercolor='red')
+        # Add control buttons in a separate subplot
+        button_height = 0.04
+        button_width = 0.15
+        button_spacing = 0.01
+        
+        # Create button axes - Add Stop button
+        stop_axes = plt.axes([0.85, 0.01, button_width, button_height])
+        stop_button = Button(stop_axes, 'Detener', color='lightgray', hovercolor='red')
+        
+        # Create regime control buttons
+        low_regime_axes = plt.axes([0.1, 0.01, button_width, button_height])
+        low_regime_button = Button(low_regime_axes, 'Low Activity', color='lightblue', hovercolor='cyan')
+        
+        normal_regime_axes = plt.axes([0.1 + button_width + button_spacing, 0.01, button_width, button_height])
+        normal_regime_button = Button(normal_regime_axes, 'Normal', color='lightgreen', hovercolor='lime')
+        
+        high_regime_axes = plt.axes([0.1 + 2 * (button_width + button_spacing), 0.01, button_width, button_height])
+        high_regime_button = Button(high_regime_axes, 'High Activity', color='salmon', hovercolor='red')
+        
+        auto_regime_axes = plt.axes([0.1 + 3 * (button_width + button_spacing), 0.01, button_width, button_height])
+        auto_regime_button = Button(auto_regime_axes, 'Auto', color='gold', hovercolor='yellow')
         
         def stop_animation(event):
             nonlocal animation_active
@@ -1086,10 +1278,38 @@ def demo_real_time_simulation() -> None:
             except Exception as e:
                 logger.error(f"Error stopping animation: {str(e)}")
         
+        def set_low_activity(event):
+            nonlocal auto_regime
+            auto_regime = False
+            state.current_regime = "low_activity"
+            logger.info("Régimen establecido manualmente: low_activity")
+        
+        def set_normal(event):
+            nonlocal auto_regime
+            auto_regime = False
+            state.current_regime = "normal"
+            logger.info("Régimen establecido manualmente: normal")
+        
+        def set_high_activity(event):
+            nonlocal auto_regime
+            auto_regime = False
+            state.current_regime = "high_activity"
+            logger.info("Régimen establecido manualmente: high_activity")
+        
+        def toggle_auto(event):
+            nonlocal auto_regime
+            auto_regime = True
+            logger.info("Detección automática de régimen activada")
+        
+        # Connect button click events
         stop_button.on_clicked(stop_animation)
+        low_regime_button.on_clicked(set_low_activity)
+        normal_regime_button.on_clicked(set_normal)
+        high_regime_button.on_clicked(set_high_activity)
+        auto_regime_button.on_clicked(toggle_auto)
         
         # Adjust layout to avoid warning
-        fig.tight_layout(rect=[0, 0.05, 1, 0.95])
+        fig.tight_layout(rect=[0, 0.08, 1, 0.95])  # Leave space for buttons at bottom
         
         # Create animation using a simpler and more robust approach (no blit)
         anim = FuncAnimation(fig, update, interval=100, blit=False, cache_frame_data=False)
@@ -1128,7 +1348,7 @@ def parse_arguments():
     
     parser.add_argument(
         "--demo", 
-        choices=["batch", "time_series", "regimes", "interactive", "simulation"],
+        choices=["batch", "time_series", "regimes", "interactive", "simulation", "custom_config"],  # Added custom_config
         default="batch",
         help="Tipo de demostración a ejecutar"
     )
@@ -1194,6 +1414,8 @@ if __name__ == "__main__":
             demo_interactive()
         elif args.demo == "simulation":
             demo_real_time_simulation()
+        elif args.demo == "custom_config":
+            demo_with_custom_config()
         else:
             logger.error(f"Modo de demostración no reconocido: {args.demo}")
         
