@@ -159,7 +159,8 @@ class BaseRegimeDetector(ABC):
     
     def fit(self, training_data: np.ndarray) -> None:
         """
-        Actualiza el detector con nuevos datos y determina el régimen actual.
+        Entrena el detector de régimen con datos históricos.
+        Método base que implementa validaciones y cálculo de estadísticas básicas.
         
         Args:
             training_data: Datos históricos para entrenamiento
