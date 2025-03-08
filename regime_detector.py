@@ -272,30 +272,102 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
         # Usar regímenes de la configuración central o los proporcionados explícitamente
         self.regimes = regimes if regimes is not None else self.detector_config.statistical_regimes
         
-                return regime_name
-        
+        # Ventana para estadísticas desde la configuración centralizada
+        self.window_size = self.detector_config.window_size
         self.data_window = deque(maxlen=self.window_size)
         
-    
-    def get_statistics(self) -> Dict[str, float]:
-        """
-        Obtiene estadísticas actuales de la ventana de datos.
+        # Estabilidad de régimen de la configuración
+        self.min_regime_duration = self.detector_config.min_regime_duration
         
+        # Verificar y logear la configuración
+        logger.info(f"Detector estadístico de régimen inicializado con {len(self.regimes)} regímenes: {list(self.regimes.keys())}")
+        logger.debug(f"Umbrales de regímenes: {self.regimes}")
+    
+    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
+        """
+        # Verificar y logear la configuración
+        logger.info(f"Detector estadístico de régimen inicializado con {len(self.regimes)} regímenes: {list(self.regimes.keys())}")
+        logger.debug(f"Umbrales de regímenes: {self.regimes}")
+    
+    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
+        Returns:
+            Régimen actual detectado
+        """
+        # Convertir a ndarray si es necesario
+        if isinstance(data_point, pd.DataFrame) or isinstance(data_point, pd.Series):
+            data_point = data_point.values
+        
+        # Si es un lote de datos, procesar cada punto
+        if data_point.ndim > 1 and data_point.shape[0] > 1:
+            # Procesar todo el lote
+        Determina el régimen basado en estadísticas calculadas.
+        
+        Args:
+            mean_value: Valor medio calculado
+            std_value: Desviación estándar calculada
+            
+        else:
+            # Un solo punto
+            if data_point.ndim > 1:
+                data_point = data_point.flatten()
+            self.data_window.append(data_point)
+        
+        # Calcular estadísticas solo si hay suficientes datos
+        if len(self.data_window) < 3:
+            return self.current_regime
+        
+        # Convertir a array para cálculos estadísticos
+        window_data = np.array(self.data_window)
+        
+        # Calcular estadísticas
+        data_mean = np.mean(np.abs(window_data))  # Media absoluta para todos los canales
+        data_std = np.std(window_data)  # Desviación estándar
+        
+        # Determinar régimen basado en estadísticas
+        detected_regime = self._determine_regime_from_stats(data_mean, data_std)
+        
+        # Verificar si hay que actualizar y notificar cambios
+        return self._check_and_update_regime(detected_regime)
+    
+    def _determine_regime_from_stats(self, mean_value: float, std_value: float) -> str:
+        """
+        Determina el régimen basado en estadísticas calculadas.
+        
+        Args:
+            mean_value: Valor medio calculado
+            std_value: Desviación estándar calculada
+            
         Returns:
             Diccionario con estadísticas (mean, std, min, max)
         """
-        if not self.data_window:
-            return {"mean": 0, "std": 0, "min": 0, "max": 0}
+            Nombre del régimen detectado
+        """
+        # Log current statistics for debugging
+        logger.debug(f"Estadísticas - Media: {mean_value:.4f}, Desviación: {std_value:.4f}")
         
-        window_array = np.array(self.data_window)
-        return {
-            "mean": float(np.mean(window_array)),
-            "std": float(np.std(window_array)),
-            "min": float(np.min(window_array)),
-            "max": float(np.max(window_array))
-        }
-
-
+        # FIXED: Improve regime detection with more robust logic
+        for regime_name, thresholds in self.regimes.items():
+            matches = True
+            
+            # Check mean thresholds
+            if "min_mean" in thresholds and mean_value < thresholds["min_mean"]:
+                matches = False
+            if "max_mean" in thresholds and mean_value > thresholds["max_mean"]:
+                matches = False
+                
+            # Check std thresholds
+            if "min_std" in thresholds and std_value < thresholds["min_std"]:
+                matches = False
+            if "max_std" in thresholds and std_value > thresholds["max_std"]:
+                matches = False
+            
+            if matches:
+                return regime_name
+        
+        # FIXED: More robust fallback - prefer current regime for stability 
+        # if no match is found rather than always choosing default
+        logger.debug(f"No matching regime found, maintaining {self.current_regime}")
+        return self.current_regime
 class TimeBasedRegimeDetector(BaseRegimeDetector):
     """
     Detector de régimen basado en patrones temporales.
@@ -313,49 +385,15 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         """
         super().__init__(name, config_override)
         
-        # Definir regímenes por hora del día (valores predeterminados)
-        self.hour_regimes = {
-            # Madrugada (00-06): baja actividad
-            0: "low_activity", 1: "low_activity", 2: "low_activity", 
-            3: "low_activity", 4: "low_activity", 5: "low_activity",
-            
-            # Mañana (06-12): actividad creciente
-            6: "normal", 7: "normal", 8: "normal", 
-            9: "normal", 10: "normal", 11: "normal",
-            
-            # Tarde (12-18): alta actividad
-            12: "high_activity", 13: "high_activity", 14: "high_activity", 
-            15: "high_activity", 16: "high_activity", 17: "high_activity",
-            
-            # Noche (18-00): actividad decreciente
-            18: "normal", 19: "normal", 20: "normal", 
-            21: "normal", 22: "normal", 23: "low_activity"
-        }
+        # Usar configuración centralizada para regímenes por hora
+        self.hour_regimes = self.detector_config.hour_regimes
         
-        # Definir regímenes por día de la semana (0=lunes, 6=domingo)
-        self.weekday_modifiers = {
-            0: "normal",    # Lunes
-            1: "normal",    # Martes
-            2: "normal",    # Miércoles
-            3: "normal",    # Jueves
-            4: "normal",    # Viernes
-            5: "weekend",   # Sábado
-            6: "weekend"    # Domingo
-        }
-        
-        # Combinaciones especiales de día-hora
-        self.special_regimes = {
-            # Formato (día_semana, hora): "régimen"
-            (4, 17): "friday_evening",    # Viernes tarde
-            (5, 12): "saturday_noon",     # Sábado mediodía
-            (6, 12): "sunday_noon"        # Domingo mediodía
-        }
-        
-        logger.info(f"Detector de régimen basado en tiempo inicializado")
+        logger.info(f"Detector de régimen basado en tiempo inicializado con {len(set(self.hour_regimes.values()))} regímenes posibles")
     
-    def set_hour_regime(self, hour: int, regime: str) -> None:
+    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series] = None) -> str:
         """
-        Establece el régimen para una hora específica.
+        Actualiza la detección de régimen basada en la hora actual.
+        Nota: Esta implementación ignora los datos, usa solo la hora del sistema.
         
         Args:
             hour: Hora (0-23)
@@ -392,47 +430,7 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         """
         self.special_regimes[(weekday, hour)] = regime
         logger.info(f"Régimen especial '{regime}' añadido para día {weekday}, hora {hour}")
-    
-    def detect(self, data: np.ndarray = None) -> str:
-        """
-        Detecta el régimen basado en la hora y día actuales.
-        
-        Args:
-            data: No utilizado en este detector, incluido para compatibilidad
-            
-        Returns:
-            Nombre del régimen detectado
-        """
-        # Obtener la hora y día actuales
-        now = datetime.now()
-        current_hour = now.hour
-        current_weekday = now.weekday()  # 0=lunes, 6=domingo
-        
-        # Verificar regímenes especiales
-        if (current_weekday, current_hour) in self.special_regimes:
-            return self.special_regimes[(current_weekday, current_hour)]
-        
-        # Combinar información de hora y día para determinar régimen
-        hour_regime = self.hour_regimes.get(current_hour, "normal")
-        weekday_modifier = self.weekday_modifiers.get(current_weekday, "normal")
-        
-        # Si es un día especial como fin de semana, puede modificar el régimen
-        if weekday_modifier == "weekend":
-            if hour_regime == "high_activity":
-                return "weekend_high_activity"
-            elif hour_regime == "normal":
-                return "weekend_normal"
-            else:
-                return "weekend_low_activity"
-        
-        return hour_regime
-
-
-class ClusteringRegimeDetector(BaseRegimeDetector):
-    """
-    Detector de régimen basado en clustering.
-    Agrupa los datos en diferentes modos de operación mediante algoritmos de clustering.
-    """
+            data_point: No utilizado, incluido para compatibilidad con la interfaz
     
     def __init__(self, name: str = "clustering_regime_detector", 
                  config_override: Dict = None,
@@ -477,18 +475,12 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
         """
         self.cluster_to_regime = cluster_to_regime
         logger.info(f"Nombres de régimen establecidos: {cluster_to_regime}")
-    
-    def fit(self, data: np.ndarray) -> None:
-        """
-        Entrena el modelo de clustering con datos históricos.
+        # Obtener hora actual
+        current_time = datetime.now()
+        current_hour = current_time.hour
         
-        Args:
-            data: Datos para entrenamiento
-        """
-        try:
-            # Asegurar que los datos son 2D
-            if data.ndim == 1:
-                train_data = data.reshape(-1, 1)
+        # Determinar régimen basado en la hora
+        detected_regime = self.hour_regimes.get(current_hour, self.detector_config.default_regime)
             else:
                 train_data = data
             
