@@ -7,6 +7,7 @@ el sistema de detección de anomalías, así como ejemplos de uso para diferente
 escenarios (datos sintéticos, procesamiento por lotes, tiempo real, etc.)
 """
 
+import collections
 import os
 import time
 import json
@@ -113,7 +114,6 @@ def generate_synthetic_data(
             # Anomalía de correlación
             anomaly = np.random.normal(0, 1, n_features)
             # Hacer que 2 características estén correlacionadas anormalmente
-            anomalous_features = np.random.choice(n_features, 2, replace=False)
             anomaly[anomalous_features[0]] = anomaly[anomalous_features[1]] * -3
             
         anomalies.append(anomaly)
@@ -804,7 +804,11 @@ def demo_real_time_simulation() -> None:
     """
     try:
         import matplotlib.pyplot as plt
+        import matplotlib as mpl
         from matplotlib.animation import FuncAnimation
+        
+        # Force a specific backend
+        mpl.use('TkAgg')
         
         logger.info("Iniciando simulación en tiempo real")
         
@@ -817,153 +821,300 @@ def demo_real_time_simulation() -> None:
         )
         
         # Dividir en entrenamiento y simulación
-        train_size = 500
+        train_size = len(ts_data) // 10       # 10% para entrenamiento
         train_data = ts_data[:train_size]
         
         # Inicializar detector
         detector = AnomalyDetector()
         detector.fit(train_data, feature_names=feature_names)
         
-        # Configuración de visualización
+        # Setup the figure and axes in a simpler way
         plt.style.use('dark_background')
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
+        fig = plt.figure(figsize=(12, 8))
+        ax1 = fig.add_subplot(211)  # Use add_subplot instead of subplots
+        ax2 = fig.add_subplot(212)
         fig.suptitle("Simulación de Detección de Anomalías en Tiempo Real", fontsize=16)
+        
+        # Variable to indicate if animation should continue
+        animation_active = True
         
         # Clase para mantener el estado de la animación
         class AnimationState:
             def __init__(self):
                 self.window_size = 100
-                self.visible_data = []
-                self.visible_scores = []
-                self.visible_thresholds = []
-                self.visible_anomalies = []
+                # Initialize all collections as deques with same maxlen
+                self.visible_data = collections.deque(maxlen=self.window_size)
+                self.visible_scores = collections.deque(maxlen=self.window_size)
+                self.visible_thresholds = collections.deque(maxlen=self.window_size)
+                self.visible_labels = collections.deque(maxlen=self.window_size)  # Ground truth labels
+                
+                # Initialize with some data to start with
+                for _ in range(20):
+                    self.visible_data.append(0.0)
+                    self.visible_scores.append(0.0)
+                    self.visible_thresholds.append(0.0)
+                    self.visible_labels.append(1)  # Default to normal
+                
+                # Tracking for visualization
+                self.true_positives = []      # List of indices of correctly detected anomalies
+                self.false_positives = []     # List of indices of false alarms
+                self.false_negatives = []     # List of indices of missed anomalies
+                
+                # Metrics tracking
                 self.sim_index = train_size
-                self.anomalies_detected = 0
+                self.total_anomalies_detected = 0
+                self.total_true_anomalies = 0
+                self.total_true_positives = 0
+                self.total_false_positives = 0
+                self.total_false_negatives = 0
                 self.points_processed = 0
                 self.current_regime = "normal"
         
         # Crear estado de animación
         state = AnimationState()
         
-        # Líneas para visualización
-        line1, = ax1.plot([], [], 'c-', label="Valor")
-        anomaly_points = ax1.scatter([], [], color='red', s=100, label="Anomalía")
+        # Set up the initial plots
+        # First axis - data plot
+        line1, = ax1.plot([], [], 'c-', label="Valor", alpha=0.7)
+        tp_scatter1 = ax1.scatter([], [], color='lime', s=120, marker='o', label="Anomalía Correcta (TP)")
+        fp_scatter1 = ax1.scatter([], [], color='orange', s=120, marker='o', label="Falso Positivo (FP)")
+        fn_scatter1 = ax1.scatter([], [], color='red', s=120, marker='x', label="Anomalía No Detectada (FN)")
+        true_anom_marker = ax1.scatter([], [], color='magenta', s=50, marker='_', label="Anomalía Real", alpha=0.7)
         
-        line2, = ax2.plot([], [], 'b-', label="Puntuación")
-        threshold_line, = ax2.plot([], [], 'r--', label="Umbral")
-        anomaly_scores = ax2.scatter([], [], color='red', s=50)
+        # Second axis - score plot
+        line2, = ax2.plot([], [], 'b-', label="Puntuación", alpha=0.7)
+        threshold_line, = ax2.plot([], [], 'r--', label="Umbral", alpha=0.7)
+        tp_scatter2 = ax2.scatter([], [], color='lime', s=80, marker='o')
+        fp_scatter2 = ax2.scatter([], [], color='orange', s=80, marker='o')
+        fn_scatter2 = ax2.scatter([], [], color='red', s=80, marker='x')
         
-        # Configurar ejes
+        # Configure axes
         ax1.set_xlim(0, state.window_size)
         ax1.set_ylim(-3, 3)
         ax1.set_title("Datos de Serie Temporal")
         ax1.set_ylabel("Valor")
-        ax1.legend(loc="upper right")
-        ax1.grid(True)
+        ax1.legend(loc="upper right", fontsize=8)
+        ax1.grid(True, alpha=0.3)
         
         ax2.set_xlim(0, state.window_size)
         ax2.set_ylim(-0.1, 1.5)
         ax2.set_title("Puntuación de Anomalía")
         ax2.set_xlabel("Tiempo")
         ax2.set_ylabel("Puntuación")
-        ax2.legend(loc="upper right")
-        ax2.grid(True)
+        ax2.legend(loc="upper right", fontsize=8)
+        ax2.grid(True, alpha=0.3)
         
-        # Texto para estadísticas
-        stats_text = ax1.text(0.02, 0.95, "", transform=ax1.transAxes, 
-                             color='white', fontsize=10, verticalalignment='top')
+        # Stats text as a plain text object instead of using fig.text
+        stats_text = ax1.text(0.02, 0.95, "", transform=ax1.transAxes, fontsize=9,
+                           color='white', ha='left', va='top')
         
-        # Función para actualizar la visualización
+        # Track figure if it's closed
+        def on_close(event):
+            nonlocal animation_active
+            animation_active = False
+            logger.info("Ventana de simulación cerrada.")
+        
+        fig.canvas.mpl_connect('close_event', on_close)
+        
+        # Función para actualizar la visualización - más simple y robusta
         def update(frame):
+            # Check if animation should stop
+            if not animation_active or not plt.fignum_exists(fig.number):
+                return
+                
             # Check if we've reached the end of data
             if state.sim_index >= len(ts_data):
                 stats_text.set_text("Simulación completada")
-                return line1, anomaly_points, line2, threshold_line, anomaly_scores, stats_text
+                return
             
-            # Procesar nuevo punto
+            # Process new data point
             current_point = ts_data[state.sim_index]
+            current_label = ts_labels[state.sim_index]  # Ground truth label
             result = detector.detect(current_point, explain=False)
+            
+            # Update state
             state.points_processed += 1
             state.current_regime = result.regime
             
-            # Actualizar historial
-            state.visible_data.append(current_point[0])  # Primera característica
+            # Update history
+            state.visible_data.append(current_point[0])  # First feature
             state.visible_scores.append(result.anomaly_score)
             state.visible_thresholds.append(result.threshold)
+            state.visible_labels.append(current_label)
             
-            # Añadir a las anomalías si es necesario
-            if result.is_anomaly:
-                state.anomalies_detected += 1
-                state.visible_anomalies.append(len(state.visible_data) - 1)
+            # Update evaluation metrics
+            is_true_anomaly = (current_label == -1)
+            is_detected_anomaly = result.is_anomaly
             
-            # Limitar tamaño de ventana
-            if len(state.visible_data) > state.window_size:
-                # Actualizar índices de anomalías
-                state.visible_anomalies = [idx - 1 for idx in state.visible_anomalies if idx > 0]
-                # Eliminar punto más antiguo
-                state.visible_data.pop(0)
-                state.visible_scores.pop(0)
-                state.visible_thresholds.pop(0)
+            if is_true_anomaly:
+                state.total_true_anomalies += 1
             
-            # Actualizar visualización
-            x_indices = list(range(len(state.visible_data)))
-            
-            line1.set_data(x_indices, state.visible_data)
-            line2.set_data(x_indices, state.visible_scores)
-            threshold_line.set_data(x_indices, state.visible_thresholds)
-            
-            # Actualizar puntos anómalos
-            if state.visible_anomalies:
-                anomaly_points.set_offsets([[idx, state.visible_data[idx]] for idx in state.visible_anomalies])
-                anomaly_scores.set_offsets([[idx, state.visible_scores[idx]] for idx in state.visible_anomalies])
-            else:
-                anomaly_points.set_offsets(np.empty((0, 2)))
-                anomaly_scores.set_offsets(np.empty((0, 2)))
-            
-            # Ajustar límites si es necesario
-            if state.visible_data:
-                min_y = min(state.visible_data) - 0.5
-                max_y = max(state.visible_data) + 0.5
-                ax1.set_ylim(min_y, max_y)
+            if is_detected_anomaly:
+                state.total_anomalies_detected += 1
                 
-                max_score = max(state.visible_scores) + 0.2
-                ax2.set_ylim(-0.1, max(1.5, max_score))
+            # Track TP, FP, FN for this window
+            current_idx = len(state.visible_data) - 1
             
-            # Actualizar estadísticas y título
-            stats_text.set_text(f"Procesados: {state.points_processed}   Anomalías: {state.anomalies_detected}")
-            ax1.set_title(f"Datos de Serie Temporal - Régimen: {state.current_regime}")
+            # Update classification lists
+            state.true_positives = [i for i in state.true_positives if i >= 0]
+            state.false_positives = [i for i in state.false_positives if i >= 0] 
+            state.false_negatives = [i for i in state.false_negatives if i >= 0]
             
-            # Incrementar contador
+            # Shift all indices (window moves left)
+            state.true_positives = [i-1 for i in state.true_positives]
+            state.false_positives = [i-1 for i in state.false_positives]
+            state.false_negatives = [i-1 for i in state.false_negatives]
+            
+            # Add the new point to appropriate list
+            if is_true_anomaly and is_detected_anomaly:
+                state.true_positives.append(current_idx)
+                state.total_true_positives += 1
+            elif not is_true_anomaly and is_detected_anomaly:
+                state.false_positives.append(current_idx)
+                state.total_false_positives += 1
+            elif is_true_anomaly and not is_detected_anomaly:
+                state.false_negatives.append(current_idx)
+                state.total_false_negatives += 1
+            
+            # Convert deques to lists for plotting
+            visible_data = list(state.visible_data)
+            visible_scores = list(state.visible_scores)
+            visible_thresholds = list(state.visible_thresholds)
+            visible_labels = list(state.visible_labels)
+            x_indices = list(range(len(visible_data)))
+            
+            # SAFE UPDATE OF PLOTS (with try-except for each component)
+            try:
+                # Update line plots
+                line1.set_data(x_indices, visible_data)
+                line2.set_data(x_indices, visible_scores)
+                threshold_line.set_data(x_indices, visible_thresholds)
+                
+                # Find true anomaly positions
+                true_anomaly_indices = [i for i, label in enumerate(visible_labels) if label == -1]
+                
+                # Update scatter plots if needed
+                if true_anomaly_indices:
+                    true_anom_marker.set_offsets(
+                        [[i, visible_data[i]] for i in true_anomaly_indices if i < len(visible_data)])
+                else:
+                    true_anom_marker.set_offsets(np.empty((0, 2)))
+                
+                # Update TP points (correctly detected anomalies)
+                valid_tp = [i for i in state.true_positives if 0 <= i < len(visible_data)]
+                if valid_tp:
+                    tp_scatter1.set_offsets([[i, visible_data[i]] for i in valid_tp])
+                    tp_scatter2.set_offsets([[i, visible_scores[i]] for i in valid_tp])
+                else:
+                    tp_scatter1.set_offsets(np.empty((0, 2)))
+                    tp_scatter2.set_offsets(np.empty((0, 2)))
+                
+                # Update FP points (false positives)
+                valid_fp = [i for i in state.false_positives if 0 <= i < len(visible_data)]
+                if valid_fp:
+                    fp_scatter1.set_offsets([[i, visible_data[i]] for i in valid_fp])
+                    fp_scatter2.set_offsets([[i, visible_scores[i]] for i in valid_fp])
+                else:
+                    fp_scatter1.set_offsets(np.empty((0, 2)))
+                    fp_scatter2.set_offsets(np.empty((0, 2)))
+                
+                # Update FN points (missed anomalies)
+                valid_fn = [i for i in state.false_negatives if 0 <= i < len(visible_data)]
+                if valid_fn:
+                    fn_scatter1.set_offsets([[i, visible_data[i]] for i in valid_fn])
+                    fn_scatter2.set_offsets([[i, visible_scores[i]] for i in valid_fn])
+                else:
+                    fn_scatter1.set_offsets(np.empty((0, 2)))
+                    fn_scatter2.set_offsets(np.empty((0, 2)))
+                
+                # Adjust axis limits if needed
+                if visible_data:
+                    min_y = min(visible_data) - 0.5
+                    max_y = max(visible_data) + 0.5
+                    ax1.set_ylim(min_y, max_y)
+                    
+                    max_score = max(visible_scores) + 0.2
+                    ax2.set_ylim(-0.1, max(1.5, max_score))
+                
+                # Calculate performance metrics
+                precision = state.total_true_positives / max(state.total_true_positives + state.total_false_positives, 1)
+                recall = state.total_true_positives / max(state.total_true_anomalies, 1)
+                f1_score = 2 * precision * recall / max(precision + recall, 1e-10)
+                
+                # Update statistics text
+                stats_info = (
+                    f"Puntos: {state.points_processed}   "
+                    f"Régimen: {state.current_regime}\n"
+                    f"Anomalías Reales: {state.total_true_anomalies}   "
+                    f"Detectadas: {state.total_anomalies_detected}\n"
+                    f"TP: {state.total_true_positives}   "
+                    f"FP: {state.total_false_positives}   "
+                    f"FN: {state.total_false_negatives}\n"
+                    f"Precisión: {precision:.2f}   "
+                    f"Recall: {recall:.2f}   "
+                    f"F1: {f1_score:.2f}"
+                )
+                stats_text.set_text(stats_info)
+                
+                # Update title
+                ax1.set_title(f"Datos de Serie Temporal - Régimen: {state.current_regime}")
+                
+            except Exception as e:
+                logger.error(f"Error updating plots: {str(e)}")
+            
+            # Increment counter
             state.sim_index += 1
             
-            return line1, anomaly_points, line2, threshold_line, anomaly_scores, stats_text
-        
-        # Inicializar valores para primera llamada de la animación
-        update(0)  # Call once to set up initial state
-        
-        # Crear animación
-        ani = FuncAnimation(fig, update, frames=None, interval=100, blit=True)
+            # Manually redraw the figure - safer than using blit
+            try:
+                fig.canvas.draw_idle()
+            except Exception as e:
+                logger.error(f"Error redrawing figure: {str(e)}")
         
         # Añadir botón de parada
         from matplotlib.widgets import Button
-        stop_ax = plt.axes([0.85, 0.01, 0.1, 0.04])
-        stop_button = Button(stop_ax, 'Detener', color='lightgray', hovercolor='red')
+        button_axes = fig.add_axes([0.85, 0.01, 0.1, 0.04])
+        stop_button = Button(button_axes, 'Detener', color='lightgray', hovercolor='red')
         
         def stop_animation(event):
-            ani.event_source.stop()
-            plt.text(0.5, 0.5, "Simulación Detenida", 
-                    transform=fig.transFigure, ha='center', fontsize=20)
-            plt.draw()
+            nonlocal animation_active
+            animation_active = False
+            try:
+                plt.text(0.5, 0.5, "Simulación Detenida", 
+                        transform=fig.transFigure, ha='center', fontsize=20)
+                fig.canvas.draw_idle()
+            except Exception as e:
+                logger.error(f"Error stopping animation: {str(e)}")
         
         stop_button.on_clicked(stop_animation)
         
-        plt.tight_layout()
-        plt.subplots_adjust(top=0.9, bottom=0.1)
+        # Adjust layout to avoid warning
+        fig.tight_layout(rect=[0, 0.05, 1, 0.95])
         
-        # Mostrar visualización interactiva
+        # Create animation using a simpler and more robust approach (no blit)
+        anim = FuncAnimation(fig, update, interval=100, blit=False, cache_frame_data=False)
+        
+        # Display interactive visualization with a more robust approach
         print("\n===== Simulación en Tiempo Real =====")
         print("Presione el botón 'Detener' o cierre la ventana para terminar")
-        plt.show()
+        print("Código de colores:")
+        print("  - Verde: Anomalía correctamente detectada (Verdadero Positivo)")
+        print("  - Naranja: Punto normal marcado como anomalía (Falso Positivo)")
+        print("  - Rojo: Anomalía no detectada (Falso Negativo)")
+        print("  - Magenta: Posición real de una anomalía")
+        
+        logger.info("Iniciando bucle de visualización...")
+        
+        # Use a more robust show approach
+        try:
+            plt.show(block=True)  # Use blocking mode to prevent premature exit
+        except KeyboardInterrupt:
+            animation_active = False
+            logger.info("Simulación interrumpida por el usuario.")
+        except Exception as e:
+            logger.error(f"Error en visualización: {str(e)}")
+        
+        logger.info("Visualización finalizada.")
         
     except ImportError as e:
         logger.error(f"Error al importar bibliotecas necesarias: {e}")
