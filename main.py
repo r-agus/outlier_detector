@@ -1094,15 +1094,6 @@ def demo_real_time_simulation() -> None:
         # Create animation using a simpler and more robust approach (no blit)
         anim = FuncAnimation(fig, update, interval=100, blit=False, cache_frame_data=False)
         
-        # Display interactive visualization with a more robust approach
-        print("\n===== Simulación en Tiempo Real =====")
-        print("Presione el botón 'Detener' o cierre la ventana para terminar")
-        print("Código de colores:")
-        print("  - Verde: Anomalía correctamente detectada (Verdadero Positivo)")
-        print("  - Naranja: Punto normal marcado como anomalía (Falso Positivo)")
-        print("  - Rojo: Anomalía no detectada (Falso Negativo)")
-        print("  - Magenta: Posición real de una anomalía")
-        
         logger.info("Iniciando bucle de visualización...")
         
         # Use a more robust show approach
