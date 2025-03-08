@@ -244,6 +244,7 @@ def save_results(results: List[AnomalyDetectionResult], filename: str) -> None:
     
     logger.info(f"Resultados guardados en {filename}")
 
+
 def convert_to_serializable(obj):
     """
     Convierte recursivamente cualquier objeto a un formato serializable en JSON.
