@@ -8,24 +8,16 @@ escenarios (datos sintéticos, procesamiento por lotes, tiempo real, etc.)
 """
 
 import os
-import sys
 import time
 import json
-import argparse
 import logging
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Union, Optional, Any
+from datetime import datetime
+from typing import List, Tuple
 
 # Importar componentes del sistema
-from config import config, load_config_from_json
-from preprocesing import DataPreprocessor, StreamPreprocessor
-from models import ModelManager, BaseAnomalyDetector, IsolationForestDetector, LOFDetector, AutoencoderDetector
-from thresholds import ThresholdManager, MovingStatsThreshold, ProbabilisticThreshold, ContextualThreshold
-from regime_detector import StatisticalRegimeDetector, TimeBasedRegimeDetector
-from feature_contribution import ContributionVisualizer, EnsembleFeatureAnalyzer
+from config import load_config_from_json
 from anomaly_detector import AnomalyDetector, AnomalyDetectionResult
 
 # Configuración de logging
