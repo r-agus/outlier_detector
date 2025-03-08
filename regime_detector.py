@@ -42,13 +42,49 @@ class BaseRegimeDetector(ABC):
         """
         self.name = name
         self.config_override = config_override if config_override else {}
-        self.current_regime = "normal"
-        self.previous_regime = "normal"
-        self.regime_history = deque(maxlen=1000)  # Almacena historial de regímenes
+        
+        # Usar configuración centralizada
+        self.detector_config = config.regime_detector
+        self.current_regime = self.detector_config.default_regime
+        self.previous_regime = self.detector_config.default_regime
+        
+        # Aplicar sobrescritura si se proporciona
+        if self.config_override:
+            for key, value in self.config_override.items():
+                if hasattr(self.detector_config, key):
+                    setattr(self.detector_config, key, value)
+        
+        # Historia de regímenes y timestamps asociados
+        self.regime_history = deque(maxlen=1000)  
+        self.timestamp_history = deque(maxlen=1000)
         self.last_change_time = time.time()
         
         # Callbacks para notificar cambios de régimen a otros componentes
         self.regime_change_callbacks = []
+        
+        # Add a flag to track if detector has been trained
+        self.is_fitted = False
+        
+        # Add reference data statistics
+        self.reference_stats = {
+            "mean": None,
+            "std": None,
+            "min": None,
+            "max": None,
+            "n_samples": 0
+        }
+        
+        # Add a flag to track if detector has been trained
+        self.is_fitted = False
+        
+        # Add reference data statistics
+        self.reference_stats = {
+            "mean": None,
+            "std": None,
+            "min": None,
+            "max": None,
+            "n_samples": 0
+        }
         
         logger.info(f"Inicializando detector de régimen: {self.name}")
     
