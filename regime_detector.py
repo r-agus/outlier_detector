@@ -528,107 +528,45 @@ class TimeBasedRegimeDetector(BaseRegimeDetector):
         Returns:
             Nombre del régimen detectado
         """
-        # Handle different input dimensions
-        # If 3D array, we need to reshape or reduce dimensionality
-        original_dim = data.ndim
-        if original_dim == 3:
-            # Option 1: Use mean across sequences to get 2D data
-            data_2d = np.mean(data, axis=1) if data.shape[1] > 1 else data.reshape(data.shape[0], -1)
+        # Convertir a ndarray si es necesario
+        if isinstance(data_point, pd.DataFrame) or isinstance(data_point, pd.Series):
+            data_point = data_point.values
+        
+        # Procesar punto o lote
+        if data_point.ndim > 1 and data_point.shape[0] > 1:
+            # Si es un lote, usar solo el último punto para la decisión actual
+            point = data_point[-1]
+            # Pero añadir todos a la ventana
+            for p in data_point:
+                self.data_window.append(p)
+                self.points_since_last_fit += 1
         else:
-            data_2d = data
-
-        # Actualizar ventana de datos (using 2D data)
-        for point in data_2d:
-            if len(point.shape) == 0 or point.shape[0] == 1:  # Punto único
-                self.data_window.append(point)
-            else:
-                for p in point:  # Múltiples puntos
-                    self.data_window.append(p)
-                    
-        # Actualizar contador para reentrenamiento
-        self.points_since_last_fit += len(data_2d)
+            # Un solo punto
+            point = data_point.flatten() if data_point.ndim > 1 else data_point
+            self.data_window.append(point)
+            self.points_since_last_fit += 1
         
-        # Si no hay suficientes datos o el modelo no está entrenado, mantener régimen actual
-        if len(self.data_window) < 10 or not self.is_fitted:
-            return self.current_regime
+        # Si no está entrenado y hay suficientes datos en la ventana, entrenar
+        if not self.is_fitted and len(self.data_window) >= max(self.n_clusters * 2, 10):
+            window_data = np.array(self.data_window)
+            self.fit(window_data)
         
-        # Preparar datos para predicción
-        window_array = np.array(self.data_window)
-        if window_array.ndim == 1:
-            window_array = window_array.reshape(-1, 1)
+        # Si sigue sin estar entrenado, usar régimen por defecto
+        if not self.is_fitted:
+            return self._check_and_update_regime(self.detector_config.default_regime)
         
-        # Si es tiempo de reentrenar el modelo
-        if self.points_since_last_fit >= self.refit_interval:
-            self.fit(window_array)
-        
-        # Predecir cluster - ensure proper dimensionality
-        if original_dim == 3:
-            # Get the most recent point from the processed data
-            last_point = data_2d[-1:] 
-        else:
-            last_point = window_array[-1:] 
-
-        # Ensure shape compatibility with the centroids
-        if last_point.shape[1] != self.centroids.shape[1]:
-            # Ajustar dimensionalidad para que coincida con los centroides
-            if self.centroids.shape[1] == 2 and last_point.shape[1] == 1:
-                # Si el modelo espera 2D pero tenemos 1D, duplicar la característica
-                last_point = np.column_stack([last_point, last_point])
-            elif self.centroids.shape[1] == 1 and last_point.shape[1] > 1:
-                # Si el modelo espera 1D pero tenemos más dimensiones, tomar solo la primera
-                last_point = last_point[:, :1]
-        
-        cluster = self.cluster_model.predict(last_point)[0]
-        
-        # Convertir cluster a régimen
-        regime = self.cluster_to_regime.get(cluster, f"cluster_{cluster}")
-        
-        return regime
-    
-    def plot_clusters(self, figsize=(12, 8)) -> Optional[plt.Figure]:
-        """
-        Visualiza los clusters y la asignación de regímenes.
-        
-        Args:
-            figsize: Tamaño de la figura
-            
-        Returns:
-            Objeto Figure de matplotlib o None si no es posible visualizar
-        """
-        if not self.is_fitted or len(self.data_window) < 10:
-            logger.warning("No se puede visualizar: modelo no entrenado o datos insuficientes")
-            return None
-        
+        # Determinar cluster del punto actual
         try:
-            # Preparar datos
-            window_array = np.array(self.data_window)
-            if window_array.ndim == 1:
-                window_array = window_array.reshape(-1, 1)
+            # Reshape para predecir
+            point_reshaped = point.reshape(1, -1)
+            cluster = self.cluster_model.predict(point_reshaped)[0]
             
-            # Si los datos son multidimensionales, usar PCA para visualización
-            if window_array.shape[1] > 2:
-                from sklearn.decomposition import PCA
-                pca = PCA(n_components=2)
-                window_array_2d = pca.fit_transform(window_array)
-                centroids_2d = pca.transform(self.centroids)
-            elif window_array.shape[1] == 1:
-                # Para datos 1D, añadir una dimensión artificial
-                window_array_2d = np.column_stack([window_array, np.zeros_like(window_array)])
-                centroids_2d = np.column_stack([self.centroids, np.zeros_like(self.centroids)])
-            else:
-                window_array_2d = window_array
-                centroids_2d = self.centroids
+            # Convertir cluster a nombre de régimen
+            detected_regime = self.cluster_to_regime.get(
+                int(cluster), self.detector_config.default_regime
+            )
             
-            # Predecir clusters para todos los puntos
-            labels = self.cluster_model.predict(window_array)
-            
-            # Visualizar
-            fig, ax = plt.subplots(figsize=figsize)
-            
-            # Graficar puntos coloreados por cluster
-            for i in range(self.n_clusters):
-                points = window_array_2d[labels == i]
-                ax.scatter(points[:, 0], points[:, 1], label=f"{self.cluster_to_regime.get(i, f'cluster_{i}')}")
+            logger.debug(f"Cluster {cluster} mapeado a régimen: {detected_regime}")
             
             # Graficar centroides
             ax.scatter(centroids_2d[:, 0], centroids_2d[:, 1], 
@@ -701,29 +639,59 @@ class HybridRegimeDetector(BaseRegimeDetector):
         Establece el peso para un detector específico.
         
         Args:
-            detector_name: Nombre del detector
-            weight: Peso a asignar (0.0 = desactivado)
+            training_data: Datos históricos para entrenamiento
         """
-        if detector_name in self.weights:
-            self.weights[detector_name] = weight
-            logger.info(f"Peso del detector '{detector_name}' establecido a {weight}")
-        else:
-            logger.warning(f"Detector '{detector_name}' no encontrado")
+        # Initialize the data window with training data for early regime detection
+        if training_data is not None and len(training_data) > 0:
+            for point in training_data[-self.detector_config.window_size:]:
+                self._data_window.append(point)
+        
+        # Train individual detectors
+        for detector in self.detectors:
+            try:
+                detector.fit(training_data)
+            except Exception as e:
+                logger.error(f"Error al entrenar {detector.name}: {str(e)}")
     
     def detect(self, data: np.ndarray) -> str:
         """
         Detecta el régimen usando un enfoque híbrido con votación ponderada.
         
         Args:
-            data: Datos recientes para analizar
+            data_point: Nuevo punto de datos
             
         Returns:
-            Nombre del régimen detectado
+            Régimen actual detectado
         """
-        # Recopilar predicciones de cada detector
-        regime_votes = {}
+        # Preprocess data point and add to local data window
+        if isinstance(data_point, pd.DataFrame) or isinstance(data_point, pd.Series):
+            data_point_array = data_point.values
+        else:
+            data_point_array = data_point
         
-        # Obtener predicción de cada detector activo
+        # Add to our local window to ensure it exists before early regime detection
+        if data_point_array.ndim > 1 and data_point_array.shape[0] > 1:
+            # If batch, add the last point
+            self._data_window.append(data_point_array[-1])
+        else:
+            # Single point
+            flat_point = data_point_array.flatten() if data_point_array.ndim > 1 else data_point_array
+            self._data_window.append(flat_point)
+            
+        # Early regime detection with minimal data
+        if len(self.data_window) < 5:  # If very little data is available
+            # Use just statistical detector for immediate feedback
+            try:
+                regime = self.statistical_detector.update(data_point)
+                return self._check_and_update_regime(regime)
+            except Exception as e:
+                logger.error(f"Error in early regime detection: {str(e)}")
+                return self.current_regime
+        
+        # Obtener predicciones de cada detector
+        regimes = {}
+        
+        # Actualizar cada detector y obtener su régimen
         for detector in self.detectors:
             detector_name = detector.name
             weight = self.weights.get(detector_name, 0.0)
@@ -754,23 +722,157 @@ class HybridRegimeDetector(BaseRegimeDetector):
             
             detected_regime = winning_regime[0]
         else:
-            # Si no hay confianza suficiente, mantener régimen actual
-            detected_regime = self.current_regime
-        
-        logger.debug(f"Detección híbrida - Votos: {regime_votes}, " +
-                    f"Ganador: {winning_regime[0]} con confianza {confidence:.2f}")
-        
-        return detected_regime
+            # Fallback to avoid errors
+            if not hasattr(self, '_data_window'):
+                self._data_window = deque(maxlen=self.detector_config.window_size)
+            return self._data_window
+
+
+# Additional utility functions to help with regime detection
+
+def detect_concept_drift(old_data: np.ndarray, new_data: np.ndarray, 
+                        alpha: float = 0.05) -> bool:
+    """
+    Detects if there's a significant distribution change between old and new data.
     
-    def fit(self, data: np.ndarray) -> None:
-        """
-        Entrena los detectores que requieren entrenamiento (clustering).
+    Args:
+        old_data: Reference data (historical)
+        new_data: Current data
+        alpha: Significance level for the test
         
-        Args:
-            data: Datos para entrenamiento
-        """
-        self.clustering_detector.fit(data)
-        logger.info("Entrenamiento de detector de clustering completado")
+    Returns:
+        True if drift detected, False otherwise
+    """
+    # If data is multidimensional, perform test on flattened distributions
+    old_flat = old_data.flatten() if old_data.ndim > 1 else old_data
+    new_flat = new_data.flatten() if new_data.ndim > 1 else new_data
+    
+    try:
+        # Perform two-sample Kolmogorov-Smirnov test
+        statistic, p_value = stats.ks_2samp(old_flat, new_flat)
+        return p_value < alpha
+    except Exception as e:
+        logger.error(f"Error in concept drift detection: {str(e)}")
+        return False
+
+
+def plot_regime_transitions(detector: BaseRegimeDetector, figsize=(12, 6)) -> plt.Figure:
+    """
+    Visualizes regime transitions over time.
+    
+    Args:
+        detector: Regime detector with history
+        figsize: Figure size
+        
+    Returns:
+        Matplotlib figure object
+    """
+    try:
+        history = detector.get_regime_history()
+        if not history:
+            return None
+            
+        times, regimes = zip(*history)
+        
+        # Convert timestamps to datetimes
+        datetimes = [datetime.fromtimestamp(t) for t in times]
+        
+        # Get unique regimes and assign colors
+        unique_regimes = sorted(set(regimes))
+        regime_to_num = {regime: i for i, regime in enumerate(unique_regimes)}
+        
+        # Convert regimes to numeric values for plotting
+        regime_values = [regime_to_num[r] for r in regimes]
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=figsize)
+        
+        # Plot regime transitions
+        ax.plot(datetimes, regime_values, 'b-', drawstyle='steps-post')
+        ax.scatter(datetimes, regime_values, c='blue', alpha=0.5)
+        
+        # Set y-ticks to regime names
+        ax.set_yticks(range(len(unique_regimes)))
+        ax.set_yticklabels(unique_regimes)
+        
+        # Format plot
+        ax.set_title("Transitions Between Operating Regimes")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Regime")
+        ax.grid(True, alpha=0.3)
+        
+        # Format date axis
+        plt.gcf().autofmt_xdate()
+        
+        return fig
+        
+    except Exception as e:
+        logger.error(f"Error plotting regime transitions: {str(e)}")
+        return None
+
+
+def plot_detector_performance(ax, detector, title, ground_truth, n_points_per_regime):
+    """Helper function to plot detector performance with consistent formatting"""
+    history = detector.get_regime_history()
+    
+    if not history:
+        ax.text(0.5, 0.5, "No hay datos de historial disponibles", 
+               horizontalalignment='center', verticalalignment='center',
+               transform=ax.transAxes)
+        ax.set_title(title)
+        return
+    
+    # Extract data
+    regimes = [h[1] for h in history]
+    
+    # Define consistent colors for regimes
+    regime_colors = {
+        'low_activity': 'blue',
+        'normal': 'green',
+        'high_activity': 'red'
+    }
+    
+    # Map regimes to numeric values for plotting
+    regime_values = []
+    for r in regimes:
+        if r == 'low_activity':
+            regime_values.append(0)
+        elif r == 'normal':
+            regime_values.append(1)
+        elif r == 'high_activity':
+            regime_values.append(2)
+        else:
+            regime_values.append(-1)  # Unknown regime
+    
+    # Plot detected regimes
+    ax.step(range(len(regime_values)), regime_values, where='post', 
+           linewidth=2, label="Régimen Detectado")
+    
+    # Add vertical lines for true regime changes
+    ax.axvline(x=n_points_per_regime, color='k', linestyle='--', alpha=0.7)
+    ax.axvline(x=n_points_per_regime*2, color='k', linestyle='--', alpha=0.7)
+    
+    # Add background colors for true regimes
+    ax.axvspan(0, n_points_per_regime, alpha=0.2, color=regime_colors['low_activity'])
+    ax.axvspan(n_points_per_regime, n_points_per_regime*2, alpha=0.2, color=regime_colors['normal'])
+    ax.axvspan(n_points_per_regime*2, len(regime_values), alpha=0.2, color=regime_colors['high_activity'])
+    
+    # Calculate accuracy
+    correct = 0
+    for i, regime in enumerate(regimes):
+        if i < len(ground_truth) and regime == ground_truth[i]:
+            correct += 1
+    
+    accuracy = correct / len(ground_truth) if ground_truth else 0
+    
+    # Set labels and title
+    ax.set_title(f"{title} - Precisión: {accuracy:.2%}")
+    ax.set_xlabel("Índice de Muestra")
+    ax.set_ylabel("Régimen")
+    ax.set_yticks([0, 1, 2])
+    ax.set_yticklabels(['Baja', 'Normal', 'Alta'])
+    ax.grid(True, alpha=0.3)
+
 
 if __name__ == "__main__":
     # Ejemplo de uso de detectores de régimen
