@@ -942,7 +942,7 @@ def demo_real_time_simulation() -> None:
         import matplotlib.pyplot as plt
         import matplotlib as mpl
         from matplotlib.animation import FuncAnimation
-        from matplotlib.widgets import Button, RadioButtons
+        from matplotlib.widgets import Button
         import regime_detector
         
         # Force a specific backend
@@ -950,30 +950,84 @@ def demo_real_time_simulation() -> None:
         
         logger.info("Iniciando simulación en tiempo real")
         
-        # Generar datos base
+        # Generar datos base con más anomalías para mejor demostración
         ts_data, ts_labels, feature_names = generate_time_series_data(
             n_points=2000,
             n_features=3,
-            n_anomalies=20,
-            seasonal_patterns=True
+            n_anomalies=150,  # Aumentar cantidad de anomalías
+            seasonal_patterns=True,
+            noise_level=0.3   # Aumentar nivel de ruido para mejor separación
         )
         
         # Dividir en entrenamiento y simulación
-        train_size = len(ts_data) // 10       # 10% para entrenamiento
+        train_size = len(ts_data) // 10
         train_data = ts_data[:train_size]
         
-        # Inicializar detector y regime detector
-        detector = AnomalyDetector()
+        # Configuración para sistema de votación con MÚLTIPLES DETECTORES
+        detector_config = {
+            "model": {
+                # Configuración más sensible para IsolationForest
+                "isolation_forest": {
+                    "n_estimators": 100,
+                    "max_samples": "auto",
+                    "contamination": 0.1,  # Mayor sensibilidad
+                    "random_state": 42
+                },
+                # Configuración para LOF
+                "lof": {
+                    "n_neighbors": 20,
+                    "contamination": 0.1,  # Mayor sensibilidad
+                    "novelty": False  # Usar modo estándar para streaming
+                },
+                # Configuración para One-Class SVM
+                "one_class_svm": {
+                    "kernel": "rbf", 
+                    "gamma": "scale",
+                    "nu": 0.1  # Mayor sensibilidad
+                }
+            },
+            "threshold": {
+                "probabilistic": {"percentile": 90},  # Bajar de 95 a 90 para detectar más anomalías
+                "moving_stats": {"multiplier": 1.8}   # Bajar de 2.5 para ser más sensible
+            }
+        }
+        
+        # Inicializar detector con configuración personalizada
+        detector = AnomalyDetector(config_override=detector_config)
+        
+        # Entrenar detector para que entrene los modelos individuales
+        logger.info("Entrenando detector con datos normales")
         detector.fit(train_data, feature_names=feature_names)
         
-        # Initialize a regime detector to use
-        regime_detector_strategy = regime_detector.StatisticalRegimeDetector(
-            name="statistical_regime",
-            regimes={
-                "low_activity": {"max_mean": 0.3, "max_std": 0.2},
-                "normal": {"min_mean": 0.3, "max_mean": 0.7, "min_std": 0.2, "max_std": 0.5},
-                "high_activity": {"min_mean": 0.7, "min_std": 0.5}
-            }
+        # Crear detector de ensamble con votación
+        voting_ensemble = detector.model_manager.create_ensemble(
+            detector_names=["IForest", "LOF", "OCSVM"],
+            method="voting",
+            weights=[1.0, 1.0, 0.8],
+            name="VotingEnsemble"
+        )
+        
+        # Entrenar el ensemble después de crearlo
+        logger.info("Entrenando detector de ensamble...")
+        # Obtenemos los datos preprocesados del mismo modo que en detector.fit()
+        preprocessed_train_data = detector.batch_preprocessor.normalize(train_data)
+        voting_ensemble.fit(preprocessed_train_data)
+        
+        # Establecer el ensemble como detector activo DESPUÉS DE ENTRENARLO
+        detector.active_detector = voting_ensemble
+        logger.info(f"Usando detector: {detector.active_detector.name} (sistema de votación con 3 detectores)")
+        
+        # Inicializar detector de regímenes
+        regime_detector_strategy = regime_detector.HybridRegimeDetector(
+            name="hybrid_regime"
+        )
+        
+        # Entrenar el detector de regímenes con los mismos datos
+        regime_detector_strategy.fit(train_data)
+        
+        # Agregar logging detallado para el detector de regímenes
+        regime_detector_strategy.add_callback(
+            lambda new_regime, old_regime: logger.info(f"CAMBIO DE RÉGIMEN: {old_regime} -> {new_regime}")
         )
         
         # Setup the figure and axes in a simpler way
