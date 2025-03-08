@@ -875,261 +875,332 @@ def plot_detector_performance(ax, detector, title, ground_truth, n_points_per_re
 
 
 if __name__ == "__main__":
-    # Ejemplo de uso de detectores de régimen
-    import numpy as np
+    """
+    Demonstrate the behavior of different regime detectors with synthetic data.
+    """
     import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+    import numpy as np
+    import time
     from datetime import datetime, timedelta
     
-    print("Iniciando demostración de detectores de régimen...")
+    print("=" * 70)
+    print("DEMOSTRACIÓN DE DETECCIÓN DE REGÍMENES OPERACIONALES")
+    print("=" * 70)
     
-    # 1. Generar datos sintéticos para demostración
+    # Configure visualization
+    plt.style.use('ggplot')
     np.random.seed(42)
     
-    # Crear series temporales con diferentes regímenes
-    # Régimen 1: Amplitud baja, poco ruido (0-200)
-    # Régimen 2: Amplitud alta, ruido moderado (200-400)
-    # Régimen 3: Amplitud media, ruido alto (400-600)
-    points = 600
-    time_values = np.linspace(0, 60, points)
+    # =========================================================================
+    # 1. DATA GENERATION - Create synthetic data with clear regime transitions
+    # =========================================================================
+    print("\n1. Generando datos sintéticos con cambios de régimen...")
     
-    # Señal base
-    base_signal = np.sin(time_values * 0.5)
+    # Time parameters
+    n_points_per_regime = 300
+    n_features = 3
+    total_points = n_points_per_regime * 3
     
-    # Añadir características específicas de régimen
-    signal = np.zeros_like(base_signal)
+    # Generate timestamps (one point every minute)
+    base_time = datetime.now() - timedelta(minutes=total_points)
+    timestamps = [base_time + timedelta(minutes=i) for i in range(total_points)]
+    time_values = [time.mktime(ts.timetuple()) for ts in timestamps]
     
-    # Régimen 1: Actividad baja (0-200)
-    signal[:200] = 0.5 * base_signal[:200] + 0.1 * np.random.randn(200)
+    # Regime 1: Low activity (low values, low variance)
+    print("  - Régimen 1: Baja actividad (valores bajos, varianza baja)")
+    low_activity_data = np.random.normal(0, 0.2, (n_points_per_regime, n_features))
     
-    # Régimen 2: Actividad alta (200-400)
-    signal[200:400] = 2.0 * base_signal[200:400] + 0.3 * np.random.randn(200)
+    # Regime 2: Normal operation (medium values, medium variance)
+    print("  - Régimen 2: Operación normal (valores medios, varianza media)")
+    normal_data = np.random.normal(1, 0.5, (n_points_per_regime, n_features))
     
-    # Régimen 3: Actividad normal con ruido (400-600)
-    signal[400:600] = 1.0 * base_signal[400:600] + 0.8 * np.random.randn(200)
+    # Regime 3: High activity (high values, high variance)
+    print("  - Régimen 3: Alta actividad (valores altos, varianza alta)")
+    high_activity_data = np.random.normal(3, 1.2, (n_points_per_regime, n_features))
     
-    # Crear puntos multidimensionales para pruebas más complejas
-    # Añadimos una segunda dimensión correlacionada pero con diferente escala de ruido
-    multi_dim_signal = np.column_stack([
-        signal,
-        signal * 0.7 + 0.2 * np.random.randn(points)
+    # Combine all regimes into one dataset
+    all_data = np.vstack([low_activity_data, normal_data, high_activity_data])
+    
+    # Ground truth regime labels
+    ground_truth = ['low_activity'] * n_points_per_regime + \
+                  ['normal'] * n_points_per_regime + \
+                  ['high_activity'] * n_points_per_regime
+    
+    # =========================================================================
+    # 2. DETECTOR INITIALIZATION - Create one of each regime detector type
+    # =========================================================================
+    print("\n2. Inicializando detectores de régimen...")
+    
+    # Statistical detector (based on statistical thresholds)
+    print("  - Detector Estadístico: umbral basado en estadísticas")
+    stat_detector = StatisticalRegimeDetector("statistical_demo", 
+                                             regimes={
+                                                 "low_activity": {
+                                                     "max_mean": 0.5,
+                                                     "max_std": 0.3
+                                                 },
+                                                 "normal": {
+                                                     "min_mean": 0.5,
+                                                     "max_mean": 2.0,
+                                                     "min_std": 0.3,
+                                                     "max_std": 0.8
+                                                 },
+                                                 "high_activity": {
+                                                     "min_mean": 2.0,
+                                                     "min_std": 0.8
+                                                 }
+                                             })
+    
+    # Clustering detector (based on K-means)
+    print("  - Detector de Clustering: agrupamiento con K-means")
+    cluster_detector = ClusteringRegimeDetector("clustering_demo", n_clusters=3)
+    
+    # Time-based detector (simulated by mapping points to time ranges)
+    print("  - Detector Temporal: régimen basado en hora/fecha")
+    time_detector = TimeBasedRegimeDetector("time_demo")
+    
+    # Hybrid detector (combines all previous detectors)
+    print("  - Detector Híbrido: combinación ponderada de detectores")
+    hybrid_detector = HybridRegimeDetector("hybrid_demo")
+    
+    # List all detectors for processing
+    detectors = [
+        stat_detector,
+        cluster_detector,
+        time_detector,
+        hybrid_detector
+    ]
+    
+    # =========================================================================
+    # 3. TRAINING - Train the detectors with sample data
+    # =========================================================================
+    print("\n3. Entrenando detectores...")
+    
+    # Training data (a small sample from each regime)
+    training_samples = n_points_per_regime // 10
+    training_data = np.vstack([
+        low_activity_data[:training_samples],
+        normal_data[:training_samples],
+        high_activity_data[:training_samples]
     ])
     
-    # 2. Configurar y probar diferentes detectores
+    # Train each detector
+    for detector in detectors:
+        print(f"  - Entrenando detector: {detector.name}")
+        detector.fit(training_data)
     
-    # 2.1 Detector Estadístico
-    print("\nProbando detector de régimen estadístico...")
-    stat_detector = StatisticalRegimeDetector("statistical_detector")
+    # =========================================================================
+    # 4. DETECTION - Run each regime detector on the full dataset
+    # =========================================================================
+    print("\n4. Ejecutando detección de régimen...")
     
-    # Personalizar los límites de régimen para nuestros datos
-    stat_detector.add_regime("low_activity", {"max_mean": 0.2, "max_std": 0.3})
-    stat_detector.add_regime("normal", {
-        "min_mean": -0.2, "max_mean": 0.2, 
-        "min_std": 0.3, "max_std": 0.9
-    })
-    stat_detector.add_regime("high_activity", {"min_mean": -0.2, "min_std": 0.9})
+    # For testing - reduce min regime duration to 0 to ensure detection works
+    for detector in detectors:
+        detector.detector_config.min_regime_duration = 0
     
-    # Procesar datos por ventanas
-    window_size = 30
-    statistical_regimes = []
+    # Store predictions from each detector
+    predictions = {}
+    regimes_by_detector = {}
     
-    for i in range(0, points, window_size):
-        end = min(i + window_size, points)
-        window_data = signal[i:end]
-        regime = stat_detector.update(window_data)
-        statistical_regimes.extend([regime] * len(window_data))
+    # Process data with each detector
+    for detector in detectors:
+        detector_name = detector.name
+        print(f"  - Procesando con {detector_name}")
         
-    print(f"Regímenes detectados estadísticamente: {set(statistical_regimes)}")
-    
-    # 2.2 Detector basado en tiempo
-    print("\nProbando detector de régimen basado en tiempo...")
-    time_detector = TimeBasedRegimeDetector("time_based_detector")
-    
-    # Crear una secuencia de tiempos simulados (cada punto es un minuto)
-    # Comenzando desde la hora actual
-    now = datetime.now()
-    simulated_times = [now + timedelta(minutes=i) for i in range(points)]
-    
-    # Personalizar configuración de regímenes por hora
-    for hour in range(24):
-        if 0 <= hour < 6:
-            time_detector.set_hour_regime(hour, "night")
-        elif 6 <= hour < 12:
-            time_detector.set_hour_regime(hour, "morning")
-        elif 12 <= hour < 18:
-            time_detector.set_hour_regime(hour, "afternoon")
-        else:
-            time_detector.set_hour_regime(hour, "evening")
-    
-    # Añadir un régimen especial para el almuerzo
-    for day in range(7):
-        time_detector.add_special_regime(day, 13, "lunch_time")
-    
-    # Detectar regímenes basados en tiempo
-    time_regimes = []
-    for simulated_time in simulated_times:
-        # El detector basado en tiempo no usa los datos directamente
-        regime = time_detector.detect()
-        time_regimes.append(regime)
-    
-    print(f"Regímenes detectados por tiempo: {set(time_regimes)}")
-    
-    # 2.3 Detector basado en clustering
-    print("\nProbando detector de régimen basado en clustering...")
-    cluster_detector = ClusteringRegimeDetector("cluster_detector", n_clusters=3)
-    
-    # Entrenar modelo de clustering con todos los datos
-    # En un caso real, esto sería un conjunto de entrenamiento histórico
-    cluster_detector.fit(multi_dim_signal)
-    
-    # Asignar nombres específicos a los clusters
-    cluster_mapping = {
-        0: "cluster_regime_A",
-        1: "cluster_regime_B",
-        2: "cluster_regime_C"
-    }
-    cluster_detector.set_regime_names(cluster_mapping)
-    
-    # Detectar regímenes por ventanas
-    clustering_regimes = []
-    
-    for i in range(0, points, window_size):
-        end = min(i + window_size, points)
-        window_data = multi_dim_signal[i:end]
-        regime = cluster_detector.update(window_data)
-        clustering_regimes.extend([regime] * len(window_data))
+        # Reset detector state
+        detector.current_regime = detector.detector_config.default_regime
+        detector.regime_history.clear()
+        detector.timestamp_history.clear()
         
-    print(f"Regímenes detectados por clustering: {set(clustering_regimes)}")
-    
-    # 2.4 Detector Híbrido
-    print("\nProbando detector de régimen híbrido...")
-    hybrid_detector = HybridRegimeDetector("hybrid_detector")
-    
-    # Configurar pesos para favorecer detección estadística y clustering
-    hybrid_detector.set_detector_weight("statistical", 1.5)
-    hybrid_detector.set_detector_weight("time_based", 0.5)  # Menor peso a tiempo
-    hybrid_detector.set_detector_weight("clustering", 1.2)
-    
-    # Registrar callback para notificación de cambios
-    def regime_change_notification(new_regime, old_regime):
-        print(f"¡Cambio de régimen detectado! {old_regime} -> {new_regime}")
+        # Track regime changes
+        regime_changes = []
         
-    hybrid_detector.add_callback(regime_change_notification)
-    
-    # Detectar regímenes con el detector híbrido
-    hybrid_regimes = []
-    
-    for i in range(0, points, window_size):
-        end = min(i + window_size, points)
-        window_data = multi_dim_signal[i:end]
-        regime = hybrid_detector.update(window_data)
-        hybrid_regimes.extend([regime] * len(window_data))
-        
-    print(f"Regímenes detectados por el detector híbrido: {set(hybrid_regimes)}")
-    
-    # 3. Visualización de resultados
-    try:
-        plt.figure(figsize=(15, 12))
-        
-        # 3.1 Gráfico de la señal original
-        plt.subplot(4, 1, 1)
-        plt.plot(signal, 'b-')
-        plt.axvline(x=200, color='r', linestyle='--')
-        plt.axvline(x=400, color='r', linestyle='--')
-        plt.title("Señal con Múltiples Regímenes")
-        plt.ylabel("Valor")
-        plt.grid(True)
-        plt.annotate("Régimen 1", xy=(100, max(signal)), ha='center')
-        plt.annotate("Régimen 2", xy=(300, max(signal)), ha='center')
-        plt.annotate("Régimen 3", xy=(500, max(signal)), ha='center')
-        
-        # 3.2 Gráfico de regímenes detectados estadísticamente
-        plt.subplot(4, 1, 2)
-        # Convertir regímenes a valores numéricos para visualización
-        unique_stat_regimes = list(set(statistical_regimes))
-        stat_regime_values = [unique_stat_regimes.index(r) for r in statistical_regimes]
-        plt.plot(stat_regime_values, 'g-', drawstyle='steps-post')
-        plt.title("Regímenes Detectados (Estadístico)")
-        plt.yticks(range(len(unique_stat_regimes)), unique_stat_regimes)
-        plt.grid(True)
-        
-        # 3.3 Gráfico de regímenes detectados por clustering
-        plt.subplot(4, 1, 3)
-        unique_cluster_regimes = list(set(clustering_regimes))
-        cluster_regime_values = [unique_cluster_regimes.index(r) for r in clustering_regimes]
-        plt.plot(cluster_regime_values, 'r-', drawstyle='steps-post')
-        plt.title("Regímenes Detectados (Clustering)")
-        plt.yticks(range(len(unique_cluster_regimes)), unique_cluster_regimes)
-        plt.grid(True)
-        
-        # 3.4 Gráfico de regímenes detectados por el detector híbrido
-        plt.subplot(4, 1, 4)
-        unique_hybrid_regimes = list(set(hybrid_regimes))
-        hybrid_regime_values = [unique_hybrid_regimes.index(r) for r in hybrid_regimes]
-        plt.plot(hybrid_regime_values, 'm-', drawstyle='steps-post')
-        plt.title("Regímenes Detectados (Híbrido)")
-        plt.yticks(range(len(unique_hybrid_regimes)), unique_hybrid_regimes)
-        plt.xlabel("Muestra")
-        plt.grid(True)
-        
-        plt.tight_layout()
-        plt.savefig("regime_detection_results.png")
-        print("\nGráfico guardado como 'regime_detection_results.png'")
-        
-    except Exception as e:
-        print(f"Error al crear visualización: {str(e)}")
-    
-    # 4. Demostrar integración con otros componentes
-    print("\nDemostración de integración con umbrales adaptativos:")
-    
-    # Importar ThresholdManager y ContextualThreshold de manera condicional
-    try:
-        from thresholds import ThresholdManager, ContextualThreshold
-        
-        # Crear umbral contextual y gestor
-        threshold_manager = ThresholdManager()
-        contextual_threshold = ContextualThreshold("contextual_with_regimes")
-        
-        # Configurar umbrales específicos para cada régimen detectado
-        for regime in set(hybrid_regimes):
-            # Asignar diferentes umbrales según el régimen
-            if "high" in regime.lower():
-                threshold_value = 0.8
-            elif "low" in regime.lower():
-                threshold_value = 0.3
-            else:
-                threshold_value = 0.5
+        # Process data point by point to ensure consistent history tracking
+        for i in range(len(all_data)):
+            point = all_data[i]
+            point_time = time_values[i]
+            regime_idx = i // n_points_per_regime
             
-            contextual_threshold.add_regime(regime, threshold_value)
-            print(f"Configurado umbral {threshold_value} para régimen '{regime}'")
+            # For time-based detector, set appropriate time-based regime
+            if isinstance(detector, TimeBasedRegimeDetector):
+                # Map each point to an appropriate hour based on its regime
+                fake_hours = np.array([3, 12, 20])  # Map to hours for each regime
+                fake_hour = fake_hours[min(regime_idx, 2)]
+                
+                # Create a timestamp with the simulated hour
+                fake_time = datetime(2023, 1, 1, int(fake_hour), 0, 0)
+                
+                # Process the point with timestamp override
+                detector.update(point)
+            else:
+                # Process one point at a time - no batches
+                detector.update(point)
+                
+        # Collect regime history for visualization
+        regimes_by_detector[detector_name] = detector.get_regime_history()
         
-        # Añadir al gestor
-        threshold_manager.add_threshold(contextual_threshold, set_as_current=True)
-        
-        # Definir función de callback para actualizar el régimen del umbral
-        def update_threshold_regime(new_regime, old_regime):
-            contextual_threshold.set_regime(new_regime)
-            print(f"Umbral adaptado al nuevo régimen: {new_regime} (umbral={contextual_threshold.get_threshold():.2f})")
-        
-        # Registrar callback en el detector de régimen
-        hybrid_detector.add_callback(update_threshold_regime)
-        
-        # Simular un cambio de régimen
-        print("\nSimulando cambios de régimen para actualizar umbrales:")
-        test_regimes = ["low_activity", "high_activity", "normal"]
-        for regime in test_regimes:
-            hybrid_detector.set_regime(regime)
-            # El callback actualizará automáticamente el umbral contextual
+        # Print detection information
+        history = detector.get_regime_history()
+        if history:
+            regimes = [r[1] for r in history]
+            transitions = sum(1 for i in range(1, len(regimes)) if regimes[i] != regimes[i-1])
+            print(f"    * Puntos procesados: {len(regimes)}/{len(all_data)}")
+            print(f"    * Transiciones detectadas: {transitions}")
     
-    except ImportError:
-        print("Módulo de umbrales no disponible para demostración de integración")
+    # =========================================================================
+    # 5. VISUALIZATION - Plot and compare detector behaviors
+    # =========================================================================
+    print("\n5. Visualizando resultados...")
     
-    # 5. Visualización avanzada - mapa de clusters
-    try:
-        cluster_fig = cluster_detector.plot_clusters(figsize=(10, 8))
-        if cluster_fig:
-            cluster_fig.savefig("regime_clusters.png")
-            print("\nMapa de clusters guardado como 'regime_clusters.png'")
-    except Exception as e:
-        print(f"No se pudo crear mapa de clusters: {str(e)}")
+    # Create comparison figure
+    fig = plt.figure(figsize=(18, 12))
+    gs = GridSpec(3, 2, height_ratios=[1, 2, 2])
     
-    print("\nDemostración de detección de regímenes completada.")
+    # Plot 1: Show the data
+    ax_data = fig.add_subplot(gs[0, :])
+    ax_data.set_title("Datos Sintéticos con 3 Regímenes", fontsize=14)
+    
+    # Plot each feature with semi-transparency to show density
+    for feature in range(n_features):
+        ax_data.plot(all_data[:, feature], alpha=0.4, label=f'Característica {feature+1}')
+    
+    # Add vertical lines to show true regime transitions
+    ax_data.axvline(x=n_points_per_regime, color='k', linestyle='--', alpha=0.7)
+    ax_data.axvline(x=n_points_per_regime*2, color='k', linestyle='--', alpha=0.7)
+    
+    # Add text labels for true regimes
+    y_pos = ax_data.get_ylim()[1] * 0.9
+    ax_data.text(n_points_per_regime*0.5, y_pos, "Baja Actividad", ha='center')
+    ax_data.text(n_points_per_regime*1.5, y_pos, "Normal", ha='center')
+    ax_data.text(n_points_per_regime*2.5, y_pos, "Alta Actividad", ha='center')
+    
+    ax_data.set_xlabel("Índice de Muestra")
+    ax_data.set_ylabel("Valor")
+    ax_data.legend(loc='upper right')
+    ax_data.grid(True, alpha=0.3)
+    
+    # Plot 2: Statistical detector performance
+    ax_stat = fig.add_subplot(gs[1, 0])
+    plot_detector_performance(ax_stat, stat_detector, "Detector Estadístico", 
+                            ground_truth, n_points_per_regime)
+    
+    # Plot 3: Clustering detector performance
+    ax_cluster = fig.add_subplot(gs[1, 1])
+    plot_detector_performance(ax_cluster, cluster_detector, "Detector de Clustering", 
+                             ground_truth, n_points_per_regime)
+    
+    # Plot 4: Time-based detector performance
+    ax_time = fig.add_subplot(gs[2, 0])
+    plot_detector_performance(ax_time, time_detector, "Detector Basado en Tiempo", 
+                           ground_truth, n_points_per_regime)
+    
+    # Plot 5: Hybrid detector performance
+    ax_hybrid = fig.add_subplot(gs[2, 1])
+    plot_detector_performance(ax_hybrid, hybrid_detector, "Detector Híbrido", 
+                            ground_truth, n_points_per_regime)
+    
+    plt.tight_layout()
+    
+    # Summary plot - compare all detectors regime changes
+    plt.figure(figsize=(15, 8))
+    #plt.title("Comparación de Detección de Regímenes", fontsize=14)
+    
+    # Define regime mapping for consistent coloring
+    regime_colors = {
+        'low_activity': 'blue',
+        'normal': 'green',
+        'high_activity': 'red',
+        'default': 'purple'
+    }
+    
+    # For each detector, calculate detection accuracy
+    accuracy_stats = {}
+    for i, detector in enumerate(detectors):
+        detector_name = detector.name
+        history = detector.get_regime_history()
+        
+        # Skip if no history
+        if not history:
+            continue
+            
+        # Extract regimes and convert to numeric for plotting
+        regimes = [r[1] for r in history]
+        
+        # Calculate agreement with ground truth
+        matches = sum(1 for i, r in enumerate(regimes) if i < len(ground_truth) and r == ground_truth[i])
+        accuracy = matches / len(ground_truth) if ground_truth else 0
+        accuracy_stats[detector_name] = accuracy
+        
+        # Plot regimes for this detector
+        plt.subplot(len(detectors), 1, i+1)
+        
+        # Create a continuous color map for the detector's regimes
+        colors = []
+        for regime in regimes:
+            colors.append(regime_colors.get(regime, regime_colors['default']))
+            
+        # Create step plot with colored segments
+        indices = list(range(len(regimes)))
+        plt.step(indices, [i] * len(indices), where='post', color='black', alpha=0.2)
+        
+        # Add colored background segments for each regime
+        prev_idx = 0
+        prev_regime = regimes[0]
+        for idx, regime in enumerate(regimes[1:], 1):
+            if regime != prev_regime:
+                plt.axvspan(prev_idx, idx, alpha=0.3, color=regime_colors.get(prev_regime, regime_colors['default']))
+                prev_idx = idx
+                prev_regime = regime
+                
+        # Last segment
+        plt.axvspan(prev_idx, len(regimes), alpha=0.3, color=regime_colors.get(prev_regime, regime_colors['default']))
+        
+        # Add vertical lines for true regime changes
+        plt.axvline(x=n_points_per_regime, color='k', linestyle='--', alpha=0.7)
+        plt.axvline(x=n_points_per_regime*2, color='k', linestyle='--', alpha=0.7)
+        
+        plt.title(f"{detector_name} - Precisión: {accuracy:.2%}")
+        plt.yticks([])  # Hide y-axis
+        
+        if i == len(detectors) - 1:
+            plt.xlabel("Índice de Muestra")
+    
+    # Create legend
+    handles = [plt.Rectangle((0,0),1,1, color=color, alpha=0.3) 
+              for regime, color in regime_colors.items()]
+    labels = list(regime_colors.keys())
+    plt.figlegend(handles, labels, loc='upper right', bbox_to_anchor=(0.95, 0.95))
+    
+    plt.tight_layout()
+    
+    # =========================================================================
+    # 6. RESULTS ANALYSIS - Print summary statistics
+    # =========================================================================
+    print("\n6. Análisis de resultados:")
+    print("-" * 60)
+    print(f"{'Detector':<20} | {'Precisión':<15} | {'Cambios Detectados':<20}")
+    print("-" * 60)
+    
+    for detector in detectors:
+        detector_name = detector.name
+        history = detector.get_regime_history()
+        
+        # Skip if no history
+        if not history or detector_name not in accuracy_stats:
+            continue
+            
+        # Count transitions
+        regimes = [r[1] for r in history]
+        transitions = sum(1 for i in range(1, len(regimes)) if regimes[i] != regimes[i-1])
+        
+        # Get accuracy
+        accuracy = accuracy_stats[detector_name]
+        
+        print(f"{detector_name:<20} | {accuracy:>13.2%} | {transitions:>20}")
+    
+    print("-" * 60)
+    
+    # Show plots
+    print("\nMostrando visualizaciones... (cierre las ventanas de gráficos para terminar)")
+    plt.show()
