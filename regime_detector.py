@@ -74,51 +74,43 @@ class BaseRegimeDetector(ABC):
             "n_samples": 0
         }
         
-        # Add a flag to track if detector has been trained
-        self.is_fitted = False
-        
-        # Add reference data statistics
-        self.reference_stats = {
-            "mean": None,
-            "std": None,
-            "min": None,
-            "max": None,
-            "n_samples": 0
-        }
-        
         logger.info(f"Inicializando detector de régimen: {self.name}")
     
     def add_callback(self, callback: Callable[[str, str], None]) -> None:
         """
-        Añade una función de callback que se ejecuta cuando cambia el régimen.
+        Añade un callback que se ejecutará cuando cambie el régimen.
         
         Args:
             callback: Función que recibe (nuevo_régimen, régimen_anterior)
         """
         self.regime_change_callbacks.append(callback)
     
-    def set_regime(self, regime: str) -> None:
+    def notify_regime_change(self, new_regime: str, old_regime: str) -> None:
         """
-        Establece manualmente el régimen actual.
-        Útil para pruebas o cuando hay información externa sobre el régimen.
+        Notifica a los callbacks registrados sobre un cambio de régimen.
         
         Args:
-            regime: Nombre del nuevo régimen
+            new_regime: Nuevo régimen detectado
+            old_regime: Régimen anterior
         """
-        if regime != self.current_regime:
-            self.previous_regime = self.current_regime
-            self.current_regime = regime
-            self.last_change_time = time.time()
-            self.regime_history.append((self.last_change_time, regime))
+        for callback in self.regime_change_callbacks:
+            try:
+                callback(new_regime, old_regime)
+            except Exception as e:
+                logger.error(f"Error en callback de cambio de régimen: {str(e)}")
+    
+    @abstractmethod
+    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
+        """
+        Actualiza la detección de régimen con nuevos datos.
+        
+        Args:
+            data_point: Nuevo punto de datos
             
-            # Notificar a través de callbacks
-            for callback in self.regime_change_callbacks:
-                try:
-                    callback(regime, self.previous_regime)
-                except Exception as e:
-                    logger.error(f"Error en callback de cambio de régimen: {str(e)}")
-            
-            logger.info(f"Régimen cambiado manualmente a '{regime}'")
+        Returns:
+            Régimen actual detectado
+        """
+        pass
     
     def get_current_regime(self) -> str:
         """
@@ -129,29 +121,43 @@ class BaseRegimeDetector(ABC):
         """
         return self.current_regime
     
-    def get_regime_history(self) -> List[Tuple[float, str]]:
+    def _check_and_update_regime(self, detected_regime: str) -> str:
         """
-        Obtiene el historial de cambios de régimen.
-        
-        Returns:
-            Lista de tuplas (timestamp, nombre_régimen)
-        """
-        return list(self.regime_history)
-    
-    @abstractmethod
-    def detect(self, data: np.ndarray) -> str:
-        """
-        Detecta el régimen actual basado en los datos proporcionados.
+        Verifica si el régimen ha cambiado y actualiza el estado si es necesario.
+        Incluye lógica para evitar oscilaciones rápidas entre regímenes.
         
         Args:
-            data: Datos recientes para analizar
+            detected_regime: Régimen detectado en la última iteración
             
         Returns:
-            Nombre del régimen detectado
+            Régimen final después de aplicar estabilidad
         """
-        pass
+        now = time.time()
+        min_duration = self.detector_config.min_regime_duration
+        
+        # Always add the current detection to history for better tracking
+        self.regime_history.append(detected_regime)
+        self.timestamp_history.append(now)
+        
+        # Si el régimen detectado es diferente al actual
+        if detected_regime != self.current_regime:
+            # Verificar si ha pasado suficiente tiempo desde el último cambio
+            if now - self.last_change_time >= min_duration:
+                old_regime = self.current_regime
+                self.previous_regime = old_regime
+                self.current_regime = detected_regime
+                self.last_change_time = now
+                
+                # Notificar cambio
+                self.notify_regime_change(detected_regime, old_regime)
+                logger.info(f"Cambio de régimen: {old_regime} -> {detected_regime}")
+            else:
+                # No ha pasado suficiente tiempo, mantener régimen actual
+                logger.debug(f"Régimen {detected_regime} detectado pero manteniendo {self.current_regime} por estabilidad")
+        
+        return self.current_regime
     
-    def update(self, data: np.ndarray) -> str:
+    def fit(self, training_data: np.ndarray) -> None:
         """
         Actualiza el detector con nuevos datos y determina el régimen actual.
         
