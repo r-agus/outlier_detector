@@ -448,7 +448,7 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
             }
         
         # Ventana de datos para adaptación continua
-        self.window_size = config.adaptation.sliding_window.get("size", 100)
+        self.window_size = self.detector_config.window_size
         self.data_window = deque(maxlen=self.window_size)
         
         # Centroides de los clusters
@@ -460,12 +460,12 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
         
         logger.info(f"Detector de régimen por clustering inicializado con {self.n_clusters} clusters")
     
-    def set_regime_names(self, cluster_to_regime: Dict[int, str]) -> None:
+    def fit(self, training_data: np.ndarray) -> None:
         """
-        Establece nombres para los regímenes asociados a cada cluster.
+        Entrena el modelo de clustering con datos históricos.
         
         Args:
-            cluster_to_regime: Mapeo de índices de cluster a nombres de régimen
+            training_data: Datos históricos para entrenamiento
         """
         if len(training_data) < self.n_clusters:
             logger.warning(f"Insuficientes datos para clustering: {len(training_data)} puntos, {self.n_clusters} clusters")
@@ -478,48 +478,22 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
                 training_data = training_data.reshape(n_samples, -1)
             
             # Entrenar modelo
-            self.cluster_model.fit(train_data)
+            self.cluster_model.fit(training_data)
             self.centroids = self.cluster_model.cluster_centers_
             self.is_fitted = True
-            
-            # Si no hay mapeo de cluster a régimen, crear uno predeterminado
-            # ordenando los clusters por la magnitud de sus centroides
-            if not self.cluster_to_regime:
-                # Ordenar centroides por magnitud
-                centroid_norms = np.linalg.norm(self.centroids, axis=1)
-                sorted_indices = np.argsort(centroid_norms)
-                
-                regimes = ["low_activity", "normal", "high_activity"]
-                if self.n_clusters <= len(regimes):
-                    for i, idx in enumerate(sorted_indices):
-                        if i < len(regimes):
-                            self.cluster_to_regime[idx] = regimes[i]
-                else:
-                    # Si hay más clusters que nombres predefinidos
-                    for i, idx in enumerate(sorted_indices):
-                        if i == 0:
-                            self.cluster_to_regime[idx] = "low_activity"
-                        elif i == len(sorted_indices) - 1:
-                            self.cluster_to_regime[idx] = "high_activity"
-                        else:
-                            self.cluster_to_regime[idx] = f"normal_{i}"
-            
-            logger.info(f"Modelo de clustering entrenado con {len(data)} puntos")
-            self.points_since_last_fit = 0
-            
+            logger.info(f"Modelo de clustering entrenado con {len(training_data)} puntos")
         except Exception as e:
             logger.error(f"Error al entrenar modelo de clustering: {str(e)}")
-            raise
     
-    def detect(self, data: np.ndarray) -> str:
+    def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
         """
-        Detecta el régimen actual basado en clustering.
+        Actualiza la detección de régimen con nuevos datos.
         
         Args:
-            data: Datos recientes para analizar
+            data_point: Nuevo punto de datos
             
         Returns:
-            Nombre del régimen detectado
+            Régimen actual detectado
         """
         # Convertir a ndarray si es necesario
         if isinstance(data_point, pd.DataFrame) or isinstance(data_point, pd.Series):
@@ -561,35 +535,25 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
             
             logger.debug(f"Cluster {cluster} mapeado a régimen: {detected_regime}")
             
-            # Graficar centroides
-            ax.scatter(centroids_2d[:, 0], centroids_2d[:, 1], 
-                      marker='X', s=200, c='black', label='Centroides')
+            # Verificar si es momento de reentrenar
+            if self.points_since_last_fit >= self.refit_interval:
+                logger.debug("Reentrenando modelo de clustering con datos recientes")
+                window_data = np.array(self.data_window)
+                self.fit(window_data)
+                self.points_since_last_fit = 0
             
-            # Añadir etiquetas con nombres de régimen a los centroides
-            for i, (x, y) in enumerate(centroids_2d):
-                regime_name = self.cluster_to_regime.get(i, f"cluster_{i}")
-                ax.annotate(regime_name, (x, y), 
-                           textcoords="offset points", 
-                           xytext=(0, 10), 
-                           ha='center')
-            
-            ax.set_title("Clustering de Regímenes Operativos")
-            ax.set_xlabel("Dimensión 1")
-            ax.set_ylabel("Dimensión 2")
-            ax.legend()
-            ax.grid(True)
-            
-            return fig
+            # Verificar si hay que actualizar y notificar cambios
+            return self._check_and_update_regime(detected_regime)
             
         except Exception as e:
-            logger.error(f"Error al visualizar clusters: {str(e)}")
-            return None
+            logger.error(f"Error al predecir cluster: {str(e)}")
+            return self._check_and_update_regime(self.detector_config.default_regime)
 
 
 class HybridRegimeDetector(BaseRegimeDetector):
     """
     Detector de régimen híbrido que combina múltiples estrategias.
-    Utiliza detección estadística, temporal y de clustering, con votación.
+    Utiliza detección estadística, temporal y de clustering, con votación ponderada.
     """
     
     def __init__(self, name: str = "hybrid_regime_detector", config_override: Dict = None):
@@ -614,22 +578,26 @@ class HybridRegimeDetector(BaseRegimeDetector):
             self.clustering_detector
         ]
         
-        # Pesos para cada detector
+        # Obtener pesos para cada detector desde la configuración
+        hybrid_weights = self.detector_config.hybrid_weights
         self.weights = {
-            "statistical": 1.0,
-            "time_based": 0.8,
-            "clustering": 1.2
+            "statistical": hybrid_weights.get("statistical", 1.0),
+            "time_based": hybrid_weights.get("time_based", 0.8),
+            "clustering": hybrid_weights.get("clustering", 0.6)
         }
         
         # Estabilidad de régimen (evitar oscilaciones)
         self.stability_window = deque(maxlen=5)  # Últimas 5 detecciones
         self.min_confidence = 0.6  # Confianza mínima para cambiar régimen
         
-        logger.info(f"Detector de régimen híbrido inicializado")
+        # Create a data window specifically for this detector to avoid early reference errors
+        self._data_window = deque(maxlen=self.detector_config.window_size)
+        
+        logger.info(f"Detector de régimen híbrido inicializado con pesos: {self.weights}")
     
-    def set_detector_weight(self, detector_name: str, weight: float) -> None:
+    def fit(self, training_data: np.ndarray) -> None:
         """
-        Establece el peso para un detector específico.
+        Entrena todos los subdetectores con datos históricos.
         
         Args:
             training_data: Datos históricos para entrenamiento
