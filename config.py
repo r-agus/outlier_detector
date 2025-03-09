@@ -160,7 +160,7 @@ class RegimeDetectorConfig:
     # Configuración general
     default_regime: str = "normal"
     min_regime_duration: int = 2  # segundos mínimos en un régimen antes de cambiar
-    window_size: int = 100  # tamaño de la ventana para análisis estadístico
+    window_size: int = 20  # tamaño de la ventana para análisis estadístico
     
     # Umbrales estadísticos para diferentes regímenes
     statistical_regimes: Dict[str, Dict[str, float]] = field(default_factory=lambda: {
@@ -198,19 +198,19 @@ class RegimeDetectorConfig:
     
     # Configuración para detector híbrido
     hybrid_weights: Dict[str, float] = field(default_factory=lambda: {
-        "statistical": 1.0,
-        "time_based": 0.8,
-        "clustering": 0.6
+        "statistical": 0.6,
+        "time_based": 0.0,
+        "clustering": 0.4
     })
     
     # Parámetros para clustering
     clustering: Dict[str, Any] = field(default_factory=lambda: {
         "n_clusters": 3,
-        "refit_interval": 1000,
+        "refit_interval": 500,
         "cluster_regime_mapping": {
             0: "low_activity",
             1: "normal",
-            2: "high_activity"
+            2: "high_activity",
         }
     })
 
