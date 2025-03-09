@@ -954,9 +954,9 @@ def demo_real_time_simulation() -> None:
         ts_data, ts_labels, feature_names = generate_time_series_data(
             n_points=2000,
             n_features=3,
-            n_anomalies=150,  # Aumentar cantidad de anomalías
+            n_anomalies=150,
             seasonal_patterns=True,
-            noise_level=0.3   # Aumentar nivel de ruido para mejor separación
+            noise_level=0.3
         )
         
         # Dividir en entrenamiento y simulación
@@ -987,8 +987,8 @@ def demo_real_time_simulation() -> None:
                 }
             },
             "threshold": {
-                "probabilistic": {"percentile": 90},  # Bajar de 95 a 90 para detectar más anomalías
-                "moving_stats": {"multiplier": 1.8}   # Bajar de 2.5 para ser más sensible
+                "probabilistic": {"percentile": 90},
+                "moving_stats": {"multiplier": 1.8} 
             }
         }
         
@@ -1003,10 +1003,10 @@ def demo_real_time_simulation() -> None:
         voting_ensemble = detector.model_manager.create_ensemble(
             detector_names=["IForest", "LOF", "OCSVM"],
             method="voting",
-            weights=[1.0, 1.0, 0.8],
+            weights=[1.0, 1.0, 1.0],
             name="VotingEnsemble"
         )
-        
+
         # Entrenar el ensemble después de crearlo
         logger.info("Entrenando detector de ensamble...")
         # Obtenemos los datos preprocesados del mismo modo que en detector.fit()
@@ -1017,9 +1017,27 @@ def demo_real_time_simulation() -> None:
         detector.active_detector = voting_ensemble
         logger.info(f"Usando detector: {detector.active_detector.name} (sistema de votación con 3 detectores)")
         
+        statistical_regimes = {
+            "low_activity": {
+                "max_mean": 0.5,
+                "max_std": 0.2
+            },
+            "normal": {
+                "min_mean": 0.5,
+                "max_mean": 0.7,
+                "min_std": 0.2,
+                "max_std": 0.5
+            },
+            "high_activity": {
+                "min_mean": 0.7,
+                "min_std": 0.5
+            }
+        }
+
         # Inicializar detector de regímenes
         regime_detector_strategy = regime_detector.HybridRegimeDetector(
-            name="hybrid_regime"
+            name="hybrid_regime",
+            config_override=statistical_regimes
         )
         
         # Entrenar el detector de regímenes con los mismos datos
