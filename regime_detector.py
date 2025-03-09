@@ -7,6 +7,7 @@ o regímenes en los datos, lo que permite adaptar la detección de anomalías al
 contexto operativo actual del sistema.
 """
 
+from math import log
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Optional, Union, Callable
@@ -358,8 +359,7 @@ class StatisticalRegimeDetector(BaseRegimeDetector):
             if matches:
                 return regime_name
         
-        # FIXED: More robust fallback - prefer current regime for stability 
-        # if no match is found rather than always choosing default
+        # Prefer current regime for stability if no match is found, rather than always choosing default
         logger.debug(f"No matching regime found, maintaining {self.current_regime}")
         return self.current_regime
 
@@ -438,6 +438,7 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
         
         # If no mapping provided, create a default mapping
         if not self.cluster_to_regime:
+            logger.warning("No se proporcionó mapeo de clusters a regímenes, usando valores por defecto")
             self.cluster_to_regime = {
                 0: "low_activity",
                 1: "normal",
@@ -469,18 +470,32 @@ class ClusteringRegimeDetector(BaseRegimeDetector):
             return
             
         try:
-            # Reshape si es necesario
+            # Reshape if needed
             if training_data.ndim > 2:
                 n_samples = training_data.shape[0]
                 training_data = training_data.reshape(n_samples, -1)
             
-            # Entrenar modelo
+            # Train model
             self.cluster_model.fit(training_data)
             self.centroids = self.cluster_model.cluster_centers_
+            
+            # Associate clusters with regimes based on centroid values
+            # Assume lower values = lower activity
+            centroid_means = np.mean(self.centroids, axis=1)
+            sorted_indices = np.argsort(centroid_means)
+            
+            # Map clusters to regimes based on centroid magnitude
+            self.cluster_to_regime = {
+                int(sorted_indices[0]): "low_activity",
+                int(sorted_indices[1]): "normal", 
+                int(sorted_indices[2]): "high_activity"
+            }
+            
+            logger.info(f"Cluster mapping: {self.cluster_to_regime}")
             self.is_fitted = True
-            logger.info(f"Modelo de clustering entrenado con {len(training_data)} puntos")
+            
         except Exception as e:
-            logger.error(f"Error al entrenar modelo de clustering: {str(e)}")
+            logger.error(f"Error training clustering model: {str(e)}")
     
     def update(self, data_point: Union[np.ndarray, pd.DataFrame, pd.Series]) -> str:
         """
@@ -579,8 +594,8 @@ class HybridRegimeDetector(BaseRegimeDetector):
         hybrid_weights = self.detector_config.hybrid_weights
         self.weights = {
             "statistical": hybrid_weights.get("statistical", 1.0),
-            "time_based": hybrid_weights.get("time_based", 0.8),
-            "clustering": hybrid_weights.get("clustering", 0.6)
+            "time_based": hybrid_weights.get("time_based", 0.1),
+            "clustering": hybrid_weights.get("clustering", 0.8)
         }
         
         # Estabilidad de régimen (evitar oscilaciones)
