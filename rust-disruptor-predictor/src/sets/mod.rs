@@ -1,3 +1,6 @@
+mod utils;
+use utils::Matrix;
+
 /// A Set is a collection of values that are associated with a label.
 #[derive(Debug)]
 pub struct Set {
@@ -18,7 +21,6 @@ pub struct SetCollection {
 
 /// A Taxonomy is vector of tuples where the first element is a label and second element is a value.
 /// A tuple belongs to a taxonomy if the nearest centroid of the point is the label of the taxonomy.
-#[derive(Debug)]
 pub struct Taxonomy {
     label: String,
     pub data: Vec<(String, f64)>,
@@ -70,7 +72,7 @@ impl SetCollection {
         centroids
     }
 
-    pub fn calculate_centroids_matrix(&mut self, xs: &Xs) -> Vec<Vec<f64>> {
+    pub fn calculate_centroids_matrix(&mut self, xs: &Xs) -> Matrix {
         let mut centroids_matrix = Vec::new();
         
         // Get all labels first
@@ -81,7 +83,7 @@ impl SetCollection {
             centroids_matrix.push(self.calculate_centroids(xs.clone(), label));
         }
 
-        centroids_matrix
+        Matrix::new(centroids_matrix)
     }
 
     /// Given a value, returns the label of the set with the closest centroid.
@@ -110,7 +112,7 @@ impl SetCollection {
         // Un punto pertenece a la taxonomia con el centroide mas cercano dentro de su fila
         let centroids_matrix = self.calculate_centroids_matrix(&xs);
         let mut taxonomies = Vec::new();
-        for (i, _rows) in centroids_matrix.iter().enumerate() {
+        for (i, _rows) in centroids_matrix.get_vec_vec().iter().enumerate() {
             let mut taxonomy = Vec::new();
             // Create taxonomies
             for set in &self.sets {
@@ -119,7 +121,7 @@ impl SetCollection {
             }
             
             // Centroids for categorization
-            let centroids: Vec<(String, f64)> = centroids_matrix[i].iter().zip(self.sets.iter()).map(|(c, s)| (s.label.clone(), *c)).collect();
+            let centroids: Vec<(String, f64)> = centroids_matrix.get_vec_vec()[i].iter().zip(self.sets.iter()).map(|(c, s)| (s.label.clone(), *c)).collect();
             // println!("{:?}", centroids);
             let categorize = |x: &f64| -> String {
                 let mut closest_set = String::new();
@@ -181,7 +183,7 @@ impl SetCollection {
     }
 
     /// Returns the probability Matrix of the taxonomies.
-    pub fn pobabilize (&self, taxonomies: &Vec<Taxonomy>) -> Vec<Vec<f64>> {
+    pub fn pobabilize (&self, taxonomies: &Vec<Taxonomy>) -> Matrix {
         let mut prob_taxonomies = Vec::new();
         let size = taxonomies.iter().map(|tx| tx.data.len() as f64).collect::<Vec<f64>>();
 
@@ -192,8 +194,9 @@ impl SetCollection {
             .flatten()
             .collect::<Vec<String>>(); // No se si esto funciona en todos los casos
 
+        unique_labels.sort();
         unique_labels.dedup();
-        // println!("{:?}", unique_labels);
+
         taxonomies.iter().for_each(|tx| {
             let prob = unique_labels.iter().zip(&size).map(|(label, size)| {
                 let count = tx.data.iter().filter(|(l, _)| l == label).count() as f64;
@@ -202,17 +205,17 @@ impl SetCollection {
             
             prob_taxonomies.push(prob);
         });
-        prob_taxonomies
+        Matrix::new(prob_taxonomies)
     }
     pub fn probabilize_avg (&self, taxonomies: &Vec<Taxonomy>) -> Vec<f64> {
         let prob_taxonomies = self.pobabilize(taxonomies);
         let mut prob_avg = Vec::new();
-        for i in 0..prob_taxonomies[0].len() {
+        for i in 0..prob_taxonomies.cols_count() {
             let mut sum = 0.0;
-            for j in 0..prob_taxonomies.len() {
-                sum += prob_taxonomies[j][i];
+            for j in 0..prob_taxonomies.rows_count() {
+                sum += prob_taxonomies.get(j, i);
             }
-            prob_avg.push(sum / prob_taxonomies.len() as f64);
+            prob_avg.push(sum / prob_taxonomies.rows_count() as f64);
         }
         prob_avg
     }
@@ -225,5 +228,20 @@ impl Taxonomy {
 
     pub fn add_data(&mut self, data: (String, f64)) {
         self.data.push(data);
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut taxonomy_str = format!("{}: ", self.label.replace("y", "T"));
+        for (label, value) in &self.data {
+            taxonomy_str.push_str(&format!("({}, {}) ",value, label));
+        }
+        taxonomy_str
+    }
+
+    pub fn vec_to_string(taxonomies: &Vec<Taxonomy>) -> String {
+        taxonomies.iter()
+            .map(|t| t.to_string())
+            .collect::<Vec<String>>()
+            .join("\n")
     }
 }
