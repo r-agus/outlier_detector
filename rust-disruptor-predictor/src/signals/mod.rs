@@ -27,6 +27,7 @@ impl Signal {
         signals
     }
 
+    /// Crea una señal a partir de un archivo.
     pub fn from_file(file_path: &str) -> Signal {
         let mut times = Vec::new();
         let mut values = Vec::new();
@@ -65,6 +66,10 @@ impl Signal {
         self.max = self.values.iter().fold(f64::MIN, |a, b| a.max(*b));
     }
 
+    /// Recibe un vector de señales y las normaliza, según la fórmula:
+    /// \[ x_{norm} = \frac{x - x_{min}}{x_{max} - x_{min}} \]
+    /// donde \( x_{min} \) y \( x_{max} \) son los valores mínimo y máximo de todas las señales.
+    /// Devuelve un vector con las señales normalizadas.
     pub fn normalize_vec(signals: Vec<Signal>) -> Vec<Signal> {
         let mut signals_norm = Vec::new();
         let global_min = signals.iter().map(|s| s.min).fold(f64::MAX, |a, b| a.min(b));
