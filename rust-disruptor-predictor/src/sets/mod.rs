@@ -1,6 +1,6 @@
-mod utils;
+pub mod utils;
 
-use utils::Matrix;
+use utils::*;
 use crate::signals::*;
 
 /// A Set is a collection of values that are associated with a label.
@@ -87,6 +87,12 @@ impl From<Set> for Xs {
     }
 }
 
+impl FromIterator<f64> for Xs {
+    fn from_iter<I: IntoIterator<Item=f64>>(iter: I) -> Self {
+        Xs { values: iter.into_iter().collect() }
+    }
+}
+
 impl Set {
     pub fn new(label: String, values: Vec<f64>) -> Set {
         Set{label, values, xs: None}
@@ -94,7 +100,7 @@ impl Set {
 
     pub fn calculate_centroid(&self) -> f64 {
         match self.xs.clone() {
-            Some(x) => (self.values.iter().sum::<f64>() + x.values.iter().sum::<f64>()) / (self.values.len() as f64 + 1.0),
+            Some(x) => (self.values.iter().sum::<f64>() + x.values.iter().sum::<f64>()) / (self.values.len() as f64 + x.values.len() as f64),
             None => self.values.iter().sum::<f64>() / (self.values.len() as f64)
         }
     }
@@ -121,7 +127,7 @@ impl SetCollection {
         self.sets.extend(sets);
     }
 
-    pub fn calculate_centroids(&mut self, xs: Xs, xs_label: String) -> Vec<f64> {
+    fn calculate_centroids(&mut self, xs: Xs, xs_label: String) -> Vec<f64> {
         let mut centroids = Vec::new();
         
         self.sets.iter_mut().for_each(|set| {
