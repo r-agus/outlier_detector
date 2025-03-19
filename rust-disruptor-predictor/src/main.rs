@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// A simple implementation of a Disruptor-based predictor in Rust.
 
 mod sets;
