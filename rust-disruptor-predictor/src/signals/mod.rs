@@ -131,7 +131,7 @@ impl Signal {
             // Solo necesitamos hasta window_size/2 por simetría
             let magnitudes: Vec<f64> = fft_input[1..=window_size/2]
                 .iter()
-                .map(|c| (c.re * c.re + c.im * c.im).sqrt())
+                .map(|c| c.norm())
                 .collect();
             
             // Calcular desviación estándar de las magnitudes
