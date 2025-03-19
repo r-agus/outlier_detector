@@ -1,5 +1,7 @@
 mod utils;
+
 use utils::Matrix;
+use crate::signals::*;
 
 /// A Set is a collection of values that are associated with a label.
 #[derive(Debug)]
@@ -12,7 +14,7 @@ pub struct Set {
 /// Xs is an special set that contains a single value.
 #[derive(Clone, Debug)]
 pub struct Xs {
-    pub value: f64,
+    pub values: Vec<f64>,
 }
 
 pub struct SetCollection {
@@ -26,6 +28,65 @@ pub struct Taxonomy {
     pub data: Vec<(String, f64)>,
 }
 
+impl From<&Signal> for Set {
+    fn from(signal: &Signal) -> Self {
+        let label = signal.label.clone();
+        Set { 
+            label, 
+            values: signal.values.clone(), 
+            xs: None 
+        }
+    }
+    
+}
+
+impl From<&SignalFeatures> for Set {
+    fn from(feature: &SignalFeatures) -> Self {
+        let label = format!("{:?}", feature.type_);
+        Set { 
+            label, 
+            values: feature.values.clone(), 
+            xs: None 
+        }
+    }
+}
+
+impl From<SignalFeatures> for Set {
+    fn from(feature: SignalFeatures) -> Self {
+        Self::from(&feature)
+    }
+}
+
+impl From<f64> for Xs {
+    fn from(value: f64) -> Self {
+        Xs { values: vec![value] }
+    }
+}
+
+impl From<&Signal> for Xs {
+    fn from(signal: &Signal) -> Self {
+        Xs { values: signal.values.clone() }
+    }
+}
+
+impl From<Signal> for Xs {
+    fn from(signal: Signal) -> Self {
+        Xs::from(&signal)
+    }
+}
+
+impl From<&Set> for Xs {
+    fn from(set: &Set) -> Self {
+        Xs { values: set.values.clone() }
+    }
+}
+
+impl From<Set> for Xs {
+    fn from(set: Set) -> Self {
+        Xs::from(&set)
+    }
+}
+
 impl Set {
     pub fn new(label: String, values: Vec<f64>) -> Set {
         Set{label, values, xs: None}
@@ -33,7 +94,7 @@ impl Set {
 
     pub fn calculate_centroid(&self) -> f64 {
         match self.xs.clone() {
-            Some(x) => (self.values.iter().sum::<f64>() + x.value) / (self.values.len() as f64 + 1.0),
+            Some(x) => (self.values.iter().sum::<f64>() + x.values.iter().sum::<f64>()) / (self.values.len() as f64 + 1.0),
             None => self.values.iter().sum::<f64>() / (self.values.len() as f64)
         }
     }
@@ -54,6 +115,10 @@ impl SetCollection {
 
     pub fn add_set(&mut self, set: Set) {
         self.sets.push(set);
+    }
+
+    pub fn add_sets(&mut self, sets: Vec<Set>) {
+        self.sets.extend(sets);
     }
 
     pub fn calculate_centroids(&mut self, xs: Xs, xs_label: String) -> Vec<f64> {
@@ -144,7 +209,7 @@ impl SetCollection {
 
             for (j, set) in &mut self.sets.iter_mut().enumerate() {
                 if i == j {
-                    let x = Xs{value: xs.value.clone()};
+                    let x = Xs{values: xs.values.clone()};
                     set.add_xs(x);
                 } else {
                     set.remove_xs();
@@ -156,8 +221,9 @@ impl SetCollection {
                 }
 
                 if set.xs.is_some() {
-                    let category = categorize(&set.xs.as_ref().unwrap().value);
-                    categorized_values.push((set.label.clone(), set.xs.as_ref().unwrap().value, category.clone()));
+                    let xs_mean = set.xs.as_ref().unwrap().values.iter().sum::<f64>() / set.xs.as_ref().unwrap().values.len() as f64;
+                    let category = categorize(&xs_mean);
+                    categorized_values.push((set.label.clone(), xs_mean, category.clone()));
 
                     // Aqui sabemos a que taxonomia pertenece el punto xs
                     //println!("Xs belongs to {:?}", category); 
