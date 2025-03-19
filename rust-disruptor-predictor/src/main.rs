@@ -8,7 +8,7 @@ mod signals;
 use sets::{Set, SetCollection, Taxonomy, Xs};
 use signals::*;
 
-fn demo_teoria() {
+fn demo_first_venn_predictor() {
     let mut set_collection = SetCollection::new();
     
     let y1 = Set::new("y1".to_string(), vec![5.0, 6.0, 7.0, 8.0]);
@@ -91,27 +91,38 @@ fn resultados_excel(pattern: &str) -> Vec<(SignalFeatures, SignalFeatures)> {
 }
 
 fn teoria(pattern: &str) {
+    let mut set_collection = SetCollection::new();
     let signals = Signal::normalize_vec(Signal::from_file_pattern(pattern));
+
     let features = signals
         .iter()
         .map(|s| s.get_features(16))
         .collect::<Vec<_>>();
 
-    let (sets_mean, sets_std): (Vec<Set>, Vec<Set>) = features
+    let (sets_mean, _sets_std): (Vec<Set>, Vec<Set>) = features
         .iter()
         .map(|(m, s)| (Set::from(m), Set::from(s)))
         .unzip();
 
-    let mut set_collection = SetCollection::new();
     set_collection.add_sets(sets_mean);
-    set_collection.add_sets(sets_std);
-    println!("Se han leído {:?} señales", signals.len());
+    // set_collection.add_sets(sets_std);
+
+    let xs = signals[0]
+        .values
+        .iter()
+        .map(|v| v * 1.1)
+        .collect::<Xs>();
+    
+    let centroids_matrix = set_collection.calculate_centroids_matrix(&xs);
+    println!("La matriz de centroides tiene tamaño: {:?}", centroids_matrix.size());
+    println!("La matriz de centroides es: {}", centroids_matrix.to_string(3));
+
 }
 
 fn main() {
     let ficheros = "remuestreados/DES_*_01*.txt";
     
-    demo_teoria();
+    demo_first_venn_predictor();
     resultados_excel(ficheros);
     teoria(ficheros);
 }
