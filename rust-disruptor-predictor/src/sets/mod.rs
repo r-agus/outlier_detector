@@ -1,7 +1,7 @@
 pub mod utils;
 
-use utils::*;
 use crate::signals::*;
+use utils::*;
 
 /// A Set is a collection of values that are associated with a label.
 #[derive(Debug)]
@@ -31,22 +31,21 @@ pub struct Taxonomy {
 impl From<&Signal> for Set {
     fn from(signal: &Signal) -> Self {
         let label = signal.label.clone();
-        Set { 
-            label, 
-            values: signal.values.clone(), 
-            xs: None 
+        Set {
+            label,
+            values: signal.values.clone(),
+            xs: None,
         }
     }
-    
 }
 
 impl From<&SignalFeatures> for Set {
     fn from(feature: &SignalFeatures) -> Self {
         let label = format!("{:?}", feature.type_);
-        Set { 
-            label, 
-            values: feature.values.clone(), 
-            xs: None 
+        Set {
+            label,
+            values: feature.values.clone(),
+            xs: None,
         }
     }
 }
@@ -59,13 +58,17 @@ impl From<SignalFeatures> for Set {
 
 impl From<f64> for Xs {
     fn from(value: f64) -> Self {
-        Xs { values: vec![value] }
+        Xs {
+            values: vec![value],
+        }
     }
 }
 
 impl From<&Signal> for Xs {
     fn from(signal: &Signal) -> Self {
-        Xs { values: signal.values.clone() }
+        Xs {
+            values: signal.values.clone(),
+        }
     }
 }
 
@@ -77,7 +80,9 @@ impl From<Signal> for Xs {
 
 impl From<&Set> for Xs {
     fn from(set: &Set) -> Self {
-        Xs { values: set.values.clone() }
+        Xs {
+            values: set.values.clone(),
+        }
     }
 }
 
@@ -88,20 +93,29 @@ impl From<Set> for Xs {
 }
 
 impl FromIterator<f64> for Xs {
-    fn from_iter<I: IntoIterator<Item=f64>>(iter: I) -> Self {
-        Xs { values: iter.into_iter().collect() }
+    fn from_iter<I: IntoIterator<Item = f64>>(iter: I) -> Self {
+        Xs {
+            values: iter.into_iter().collect(),
+        }
     }
 }
 
 impl Set {
     pub fn new(label: String, values: Vec<f64>) -> Set {
-        Set{label, values, xs: None}
+        Set {
+            label,
+            values,
+            xs: None,
+        }
     }
 
     pub fn calculate_centroid(&self) -> f64 {
         match self.xs.clone() {
-            Some(x) => (self.values.iter().sum::<f64>() + x.values.iter().sum::<f64>()) / (self.values.len() as f64 + x.values.len() as f64),
-            None => self.values.iter().sum::<f64>() / (self.values.len() as f64)
+            Some(x) => {
+                (self.values.iter().sum::<f64>() + x.values.iter().sum::<f64>())
+                    / (self.values.len() as f64 + x.values.len() as f64)
+            }
+            None => self.values.iter().sum::<f64>() / (self.values.len() as f64),
         }
     }
 
@@ -116,7 +130,7 @@ impl Set {
 
 impl SetCollection {
     pub fn new() -> SetCollection {
-        SetCollection{sets: Vec::new()}
+        SetCollection { sets: Vec::new() }
     }
 
     pub fn add_set(&mut self, set: Set) {
@@ -129,7 +143,7 @@ impl SetCollection {
 
     fn calculate_centroids(&mut self, xs: Xs, xs_label: String) -> Vec<f64> {
         let mut centroids = Vec::new();
-        
+
         self.sets.iter_mut().for_each(|set| {
             if set.label == xs_label {
                 set.add_xs(xs.clone());
@@ -145,10 +159,10 @@ impl SetCollection {
 
     pub fn calculate_centroids_matrix(&mut self, xs: &Xs) -> Matrix {
         let mut centroids_matrix = Vec::new();
-        
+
         // Get all labels first
         let labels: Vec<String> = self.sets.iter().map(|set| set.label.clone()).collect();
-        
+
         // Calculate centroids for each label
         for label in labels {
             centroids_matrix.push(self.calculate_centroids(xs.clone(), label));
@@ -190,32 +204,38 @@ impl SetCollection {
                 let tx = Taxonomy::new(set.label.clone());
                 taxonomy.push(tx);
             }
-            
+
             // Centroids for categorization
-            let centroids: Vec<(String, f64)> = centroids_matrix.get_vec_vec()[i].iter().zip(self.sets.iter()).map(|(c, s)| (s.label.clone(), *c)).collect();
+            let centroids: Vec<(String, f64)> = centroids_matrix.get_vec_vec()[i]
+                .iter()
+                .zip(self.sets.iter())
+                .map(|(c, s)| (s.label.clone(), *c))
+                .collect();
             // println!("{:?}", centroids);
             let categorize = |x: &f64| -> String {
                 let mut closest_set = String::new();
                 let mut min_distance = f64::MAX;
-                
+
                 for (label, centroid) in &centroids {
                     let distance = (centroid - x).abs();
-                    
+
                     if distance < min_distance {
                         min_distance = distance;
                         closest_set = label.clone();
                     }
                 }
-                
+
                 closest_set
             };
-                
+
             // Categorizations
             let mut categorized_values = Vec::new();
 
             for (j, set) in &mut self.sets.iter_mut().enumerate() {
                 if i == j {
-                    let x = Xs{values: xs.values.clone()};
+                    let x = Xs {
+                        values: xs.values.clone(),
+                    };
                     set.add_xs(x);
                 } else {
                     set.remove_xs();
@@ -227,12 +247,13 @@ impl SetCollection {
                 }
 
                 if set.xs.is_some() {
-                    let xs_mean = set.xs.as_ref().unwrap().values.iter().sum::<f64>() / set.xs.as_ref().unwrap().values.len() as f64;
+                    let xs_mean = set.xs.as_ref().unwrap().values.iter().sum::<f64>()
+                        / set.xs.as_ref().unwrap().values.len() as f64;
                     let category = categorize(&xs_mean);
                     categorized_values.push((set.label.clone(), xs_mean, category.clone()));
 
                     // Aqui sabemos a que taxonomia pertenece el punto xs
-                    //println!("Xs belongs to {:?}", category); 
+                    //println!("Xs belongs to {:?}", category);
 
                     // Podemos eliminar las taxonomias que no contienen el punto xs
                     taxonomy.retain(|t| t.label == category);
@@ -240,7 +261,7 @@ impl SetCollection {
                     set.remove_xs();
                 }
             }
-            
+
             // Assign data to taxonomies
             for tx in &mut taxonomy {
                 for (set_label, value, category) in &categorized_values {
@@ -255,14 +276,21 @@ impl SetCollection {
     }
 
     /// Returns the probability Matrix of the taxonomies.
-    pub fn pobabilize (&self, taxonomies: &Vec<Taxonomy>) -> Matrix {
+    pub fn pobabilize(&self, taxonomies: &Vec<Taxonomy>) -> Matrix {
         let mut prob_taxonomies = Vec::new();
-        let size = taxonomies.iter().map(|tx| tx.data.len() as f64).collect::<Vec<f64>>();
+        let size = taxonomies
+            .iter()
+            .map(|tx| tx.data.len() as f64)
+            .collect::<Vec<f64>>();
 
         let mut unique_labels = taxonomies
             .iter()
-            .map(|tx| 
-                tx.data.iter().map(|(l, _)| l.clone()).collect::<Vec<String>>())
+            .map(|tx| {
+                tx.data
+                    .iter()
+                    .map(|(l, _)| l.clone())
+                    .collect::<Vec<String>>()
+            })
             .flatten()
             .collect::<Vec<String>>(); // No se si esto funciona en todos los casos
 
@@ -270,16 +298,20 @@ impl SetCollection {
         unique_labels.dedup();
 
         taxonomies.iter().for_each(|tx| {
-            let prob = unique_labels.iter().zip(&size).map(|(label, size)| {
-                let count = tx.data.iter().filter(|(l, _)| l == label).count() as f64;
-                count / size
-            }).collect();
-            
+            let prob = unique_labels
+                .iter()
+                .zip(&size)
+                .map(|(label, size)| {
+                    let count = tx.data.iter().filter(|(l, _)| l == label).count() as f64;
+                    count / size
+                })
+                .collect();
+
             prob_taxonomies.push(prob);
         });
         Matrix::new(prob_taxonomies)
     }
-    pub fn probabilize_avg (&self, taxonomies: &Vec<Taxonomy>) -> Vec<f64> {
+    pub fn probabilize_avg(&self, taxonomies: &Vec<Taxonomy>) -> Vec<f64> {
         let prob_taxonomies = self.pobabilize(taxonomies);
         let mut prob_avg = Vec::new();
         for i in 0..prob_taxonomies.cols_count() {
@@ -295,7 +327,10 @@ impl SetCollection {
 
 impl Taxonomy {
     pub fn new(label: String) -> Taxonomy {
-        Taxonomy{label, data: Vec::new()}
+        Taxonomy {
+            label,
+            data: Vec::new(),
+        }
     }
 
     pub fn add_data(&mut self, data: (String, f64)) {
@@ -305,13 +340,14 @@ impl Taxonomy {
     pub fn to_string(&self) -> String {
         let mut taxonomy_str = format!("{}: ", self.label.replace("y", "T"));
         for (label, value) in &self.data {
-            taxonomy_str.push_str(&format!("({}, {}) ",value, label));
+            taxonomy_str.push_str(&format!("({}, {}) ", value, label));
         }
         taxonomy_str
     }
 
     pub fn vec_to_string(taxonomies: &Vec<Taxonomy>) -> String {
-        taxonomies.iter()
+        taxonomies
+            .iter()
             .map(|t| t.to_string())
             .collect::<Vec<String>>()
             .join("\n")
