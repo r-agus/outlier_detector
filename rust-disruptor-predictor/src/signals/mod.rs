@@ -1,5 +1,6 @@
 use rustfft::{num_complex::Complex, FftPlanner};
 
+#[derive(Clone)]
 pub struct Signal {
     pub label: String,
     pub _times: Vec<f64>,
@@ -8,13 +9,45 @@ pub struct Signal {
     max: f64,
 }
 
+#[derive(Debug)]
+pub enum FeatureType {
+    Mean,
+    FftStd,
+}
+
+pub struct SignalFeatures {
+    pub type_: FeatureType,
+    pub values: Vec<f64>,
+}
+
 impl std::fmt::Debug for Signal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Signal {{ label: {}, min: {}, max: {} }}. Values length: {}", self.label, self.min, self.max, self.values.len())
     }
 }
 
+impl std::fmt::Debug for SignalFeatures {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SignalFeatures {{ type: {:?}, values: {:?} }}", self.type_, self.values)
+    }
+    
+}
+
 impl Signal {
+    pub fn new(label: String, values: Vec<f64>) -> Signal {
+        let min = values.iter().fold(f64::MAX, |a, b| a.min(*b));
+        let max = values.iter().fold(f64::MIN, |a, b| a.max(*b));
+        Signal {
+            label,
+            _times: Vec::new(),
+            values,
+            min,
+            max,
+        }
+    }
+    
+    /// Crea señales a partir de archivos que coincidan con un patrón.
+    /// Devuelve un vector con las señales leídas.
     pub fn from_file_pattern(file_pattern: &str) -> Vec<Signal> {
         let mut signals = Vec::new();
         let paths = glob::glob(file_pattern).expect("Error reading file pattern");
