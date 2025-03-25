@@ -103,7 +103,7 @@ impl Signal {
         }
     }
 
-    pub fn _normalize(&mut self) {
+    pub fn normalize(&mut self) {
         self.values
             .iter_mut()
             .for_each(|v| *v = (*v - self.min) / (self.max - self.min));

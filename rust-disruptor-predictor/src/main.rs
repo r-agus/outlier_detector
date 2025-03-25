@@ -38,7 +38,7 @@ fn resultados_excel(pattern: &str) -> Vec<(SignalFeatures, SignalFeatures)> {
     let signals = Signal::from_file_pattern(pattern);
     println!("Se han leído {:?} señales", signals.len());
 
-    // signals.iter_mut().for_each(|s| s._normalize());
+    // signals.iter_mut().for_each(|s| s.normalize());
     for s in &signals {
         println!(
             "Señal: {:?}, min: {:?}, max: {:?}, muestras: {}",
@@ -96,47 +96,21 @@ fn resultados_excel(pattern: &str) -> Vec<(SignalFeatures, SignalFeatures)> {
     let feat_mean = &features[0].0.values;
     let feat_std = &features[0].1.values;
 
-    println!("[0]: ({:.*?}, {:.*?})", 15, feat_mean[0], 15, feat_std[0]);
-    println!("[1]: ({:.*?}, {:.*?})", 15, feat_mean[1], 15, feat_std[1]);
-    println!("[2]: ({:.*?}, {:.*?})", 15, feat_mean[2], 15, feat_std[2]);
-    println!("[3]: ({:.*?}, {:.*?})", 15, feat_mean[3], 15, feat_std[3]);
-    println!("[4]: ({:.*?}, {:.*?})", 15, feat_mean[4], 15, feat_std[4]);
-    println!("[5]: ({:.*?}, {:.*?})", 15, feat_mean[5], 15, feat_std[5]);
+    for i in 0..=5 {
+        println!(
+            "[{}]: ({:.*?}, {:.*?})",
+            i, 15, feat_mean[i], 15, feat_std[i]
+        );
+    }
     println!(".");
     println!(".");
     println!(".");
-    println!(
-        "[n-4]: ({:.*?}, {:.*?})",
-        15,
-        feat_mean[feat_size - 4],
-        15,
-        feat_std[feat_size - 4]
-    );
-    println!(
-        "[n-3]: ({:.*?}, {:.*?})",
-        15,
-        feat_mean[feat_size - 3],
-        15,
-        feat_std[feat_size - 3]
-    );
-    println!(
-        "[n-2]: ({:.*?}, {:.*?})",
-        15,
-        feat_mean[feat_size - 2],
-        15,
-        feat_std[feat_size - 2]
-    );
-    println!(
-        "[n-1]: ({:.*?}, {:.*?})",
-        15,
-        feat_mean[feat_size - 1],
-        15,
-        feat_std[feat_size - 1]
-    );
-    println!(
-        "[n]:   ({:.*?}, {:.*?})",
-        15, feat_mean[feat_size], 15, feat_std[feat_size]
-    );
+    for i in (feat_size - 5)..=feat_size {
+        println!(
+            "[{}]: ({:.*?}, {:.*?})",
+            i, 15, feat_mean[i], 15, feat_std[i]
+        );
+    }
 
     println!("\n\n");
     println!(
