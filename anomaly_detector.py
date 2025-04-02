@@ -7,10 +7,13 @@ modelos, umbrales adaptativos, detección de regímenes, etc.) y proporciona
 una interfaz unificada para la detección de anomalías en tiempo real.
 """
 
+from json import load
 from math import log
 import os
 import time
 import logging
+from unittest import result
+from discharge_data import *
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Tuple, Union, Optional, Any, Callable
@@ -760,35 +763,117 @@ class AnomalyDetector:
             return None
 
 
-if __name__ == "__main__":
-    # Ejemplo de uso del sistema de detección de anomalías
-    # Generar datos de ejemplo
-    np.random.seed(42)
-    normal_data = np.random.normal(0, 1, (1000, 5))
-    anomalous_data = np.random.normal(5, 1, (10, 5))
-    data = np.vstack([normal_data, anomalous_data])
+def load_and_prepare_discharge(discharge_id, max_rows=None):
+    """Load a specific discharge by ID and prepare it for analysis"""
+    pattern = f'DES_{discharge_id}*.txt'
+    data = load_discharge_data_by_pattern(DISCHARGE_DATA_PATH, pattern)
+    
+    if data.empty:
+        logger.error(f"No data found for discharge {discharge_id}")
+        return None
+        
+    # Convert to proper numeric types
+    data['discharge_value'] = data['discharge'].astype(float)
+    data['time'] = data['seconds'].astype(float)
+    
+    # Limit rows if requested
+    if max_rows:
+        data = data.head(max_rows)
+    
+    # Return with proper feature names matching the actual columns
+    return data[['discharge_value', 'time']]
 
-    # Inicializar detector
+def main():
+    # Load discharge etiquetation to identify disruptive/non-disruptive discharges
+    etiquetation = load_discharge_etiquetation_data(DISCHARGES_ETIQUETATION_DATA_FILE)
+    
+    # Identify disruptive and non-disruptive discharges
+    disruptive = etiquetation[etiquetation['time'] > 0]['discharge'].values
+    non_disruptive = etiquetation[etiquetation['time'] == 0]['discharge'].values
+    
+    logger.info(f"Found {len(disruptive)} disruptive and {len(non_disruptive)} non-disruptive discharges")
+    
+    # Select training data: 4 non-disruptive discharges
+    # Use the first 4 non-disruptive discharges for training
+    train_discharges = non_disruptive[:4]  
+    
+    # Select testing data: 1 non-disruptive + 2 disruptive discharges
+    test_non_disruptive = non_disruptive[4:5]  # One non-disruptive for testing
+    test_disruptive = disruptive[:2]  # Two disruptive for testing
+    
+    # Load and combine training data
+    training_data = pd.DataFrame()
+    for discharge_id in train_discharges:
+        logger.info(f"Loading training data for non-disruptive discharge {discharge_id}")
+        discharge_data = load_and_prepare_discharge(int(discharge_id))
+        if discharge_data is not None:
+            training_data = pd.concat([training_data, discharge_data])
+    
+    if training_data.empty:
+        logger.error("No training data loaded. Exiting.")
+        return
+    
+    logger.info(f"Training data loaded: {len(training_data)} data points from {len(train_discharges)} non-disruptive discharges")
+    
+    # Initialize and train the detector
+    feature_names = training_data.columns.tolist()
     detector = AnomalyDetector()
+    detector.set_feature_names(feature_names)
     
-    # Entrenar detector con datos normales
-    detector.fit(normal_data, feature_names=[f"feature_{i}" for i in range(5)])
+    logger.info("Training anomaly detector...")
+    detector.fit(training_data.values, feature_names=feature_names)
+    logger.info("Training complete")
     
-    # Detectar anomalías en un lote de datos
-    results = detector.process_batch(data, explain_anomalies=True)
+    # Test on non-disruptive discharge (should have few or no anomalies)
+    for discharge_id in test_non_disruptive:
+        logger.info(f"Testing non-disruptive discharge {discharge_id}")
+        test_data = load_and_prepare_discharge(int(discharge_id))
+        
+        if test_data is not None:
+            results = detector.process_batch(test_data.values, explain_anomalies=True)
+            anomalies = [r for r in results if r.is_anomaly]
+            logger.info(f"Non-disruptive discharge {discharge_id}: {len(anomalies)} anomalies out of {len(results)} points ({len(anomalies)/len(results)*100:.2f}%)")
+            
+            # Optional: Plot anomaly history
+            fig = detector.plot_anomaly_history()
+            if fig:
+                plt.figure(fig.number)
+                plt.title(f"Non-disruptive Discharge {discharge_id}")
+                plt.savefig(f"non_disruptive_{discharge_id}_anomalies.png")
+                plt.close()
     
-    # Mostrar resultados
-    for result in results:
-        print(result)
-    
-    # Visualizar historial de anomalías
-    fig = detector.plot_anomaly_history()
-    if fig:
-        plt.show()
-    
-    # Visualizar contribuciones de características para la primera anomalía detectada
-    anomalies = [res for res in results if res.is_anomaly]
-    if anomalies:
-        fig = detector.plot_feature_contributions(anomalies[0])
-        if fig:
-            plt.show()
+    # Test on disruptive discharges (should detect anomalies)
+    for discharge_id in test_disruptive:
+        logger.info(f"Testing disruptive discharge {discharge_id}")
+        test_data = load_and_prepare_discharge(int(discharge_id))
+        
+        if test_data is not None:
+            results = detector.process_batch(test_data.values, explain_anomalies=True)
+            anomalies = [r for r in results if r.is_anomaly]
+            logger.info(f"Disruptive discharge {discharge_id}: {len(anomalies)} anomalies out of {len(results)} points ({len(anomalies)/len(results)*100:.2f}%)")
+            
+            # Optional: Plot anomaly history
+            fig = detector.plot_anomaly_history()
+            if fig:
+                plt.figure(fig.number)
+                plt.title(f"Disruptive Discharge {discharge_id}")
+                plt.savefig(f"disruptive_{discharge_id}_anomalies.png")
+                plt.close()
+                
+            # If anomalies were found, examine the first few
+            if anomalies:
+                logger.info("Sample anomalies detected:")
+                for i, anomaly in enumerate(anomalies[:3]):
+                    logger.info(f"Anomaly {i+1}: {anomaly}")
+                
+                # Plot feature contributions for the strongest anomaly
+                strongest_anomaly = max(anomalies, key=lambda x: x.anomaly_score)
+                fig = detector.plot_feature_contributions(strongest_anomaly)
+                if fig:
+                    plt.figure(fig.number)
+                    plt.title(f"Feature Contributions - Discharge {discharge_id}")
+                    plt.savefig(f"disruptive_{discharge_id}_contributions.png")
+                    plt.close()
+
+if __name__ == "__main__":
+    main()
