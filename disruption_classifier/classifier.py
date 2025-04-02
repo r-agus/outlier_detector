@@ -115,7 +115,7 @@ class DisruptionClassifier:
         X_lstm = np.reshape(X_scaled, (X_scaled.shape[0], 1, X_scaled.shape[1]))
         return X_lstm, y
     
-    def train_models(self, test_size=0.2, random_state=42):
+    def train_models(self, test_size=0.2, random_state=42, ocsvm_params=None, iforest_params=None, lstm_params=None):
         """Train all models and evaluate them."""
         X_scaled, y, discharge_ids = self.prepare_features()
         
@@ -127,32 +127,102 @@ class DisruptionClassifier:
         
         print(f"Training set: {len(X_train)} samples")
         print(f"Test set: {len(X_test)} samples")
+        print(f"Test size: {test_size}")
         
         # Train OCSVM - train only on non-disruptive cases (label 0)
         X_train_normal = X_train[y_train == 0]
-        self.ocsvm_model = OneClassSVM(kernel='rbf', gamma='auto')
+        
+        # Use default parameters if not provided
+        if ocsvm_params is None:
+            ocsvm_params = {'kernel': 'rbf', 'nu': 0.1, 'gamma': 'auto'}
+        else:
+            print("\nReceived custom OCSVM parameters from GUI")
+        
+        # Print OCSVM parameters
+        print("\n" + "="*50)
+        print("OCSVM Parameters:")
+        print(f"  - kernel: {ocsvm_params['kernel']}")
+        print(f"  - nu: {ocsvm_params['nu']}")
+        print(f"  - gamma: {ocsvm_params['gamma']}")
+        print("="*50)
+        
+        self.ocsvm_model = OneClassSVM(
+            kernel=ocsvm_params['kernel'], 
+            nu=ocsvm_params['nu'], 
+            gamma=ocsvm_params['gamma']
+        )
         self.ocsvm_model.fit(X_train_normal)
         
         # Train Isolation Forest - again, train only on normal data
-        self.iforest_model = IsolationForest(random_state=random_state, contamination=0.1)
+        if iforest_params is None:
+            iforest_params = {'n_estimators': 100, 'contamination': 0.1, 'max_features': 1.0}
+        else:
+            print("\nReceived custom Isolation Forest parameters from GUI")
+        
+        # Print Isolation Forest parameters
+        print("\n" + "="*50)
+        print("Isolation Forest Parameters:")
+        print(f"  - n_estimators: {iforest_params['n_estimators']}")
+        print(f"  - contamination: {iforest_params['contamination']}")
+        print(f"  - max_features: {iforest_params['max_features']}")
+        print("="*50)
+        
+        self.iforest_model = IsolationForest(
+            random_state=random_state, 
+            n_estimators=int(iforest_params['n_estimators']),
+            contamination=float(iforest_params['contamination']), 
+            max_features=float(iforest_params['max_features'])
+        )
         self.iforest_model.fit(X_train_normal)
         
         # Train LSTM
         X_lstm_train, _ = self.prepare_lstm_data(X_train, y_train)
         X_lstm_test, _ = self.prepare_lstm_data(X_test, y_test)
         
+        # Use default parameters if not provided
+        if lstm_params is None:
+            lstm_params = {
+                'layer1_units': 64,
+                'layer2_units': 32,
+                'dropout_rate': 0.2,
+                'learning_rate': 0.001,
+                'batch_size': 16,
+                'epochs': 100
+            }
+        else:
+            print("\nReceived custom LSTM parameters from GUI")
+        
+        # Print LSTM parameters
+        print("\n" + "="*50)
+        print("LSTM Network Parameters:")
+        print(f"  - layer1_units: {lstm_params['layer1_units']}")
+        print(f"  - layer2_units: {lstm_params['layer2_units']}")
+        print(f"  - dropout_rate: {lstm_params['dropout_rate']}")
+        print(f"  - learning_rate: {lstm_params['learning_rate']}")
+        print(f"  - batch_size: {lstm_params['batch_size']}")
+        print(f"  - epochs: {lstm_params['epochs']}")
+        print("="*50 + "\n")
+        
         # LSTM model for binary classification
         self.lstm_model = Sequential([
-            LSTM(64, input_shape=(1, X_train.shape[1]), return_sequences=True),
-            Dropout(0.2),
-            LSTM(32),
+            LSTM(lstm_params['layer1_units'], input_shape=(1, X_train.shape[1]), return_sequences=True),
+            Dropout(lstm_params['dropout_rate']),
+            LSTM(lstm_params['layer2_units']),
             Dense(16, activation='relu'),
             Dense(1, activation='sigmoid')
         ])
         
-        self.lstm_model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-        self.lstm_model.fit(X_lstm_train, y_train, epochs=100, batch_size=16, verbose=1, 
-                          validation_split=0.2)
+        # Use Adam optimizer with custom learning rate
+        optimizer = tf.keras.optimizers.Adam(learning_rate=lstm_params['learning_rate'])
+        
+        self.lstm_model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
+        self.lstm_model.fit(
+            X_lstm_train, y_train, 
+            epochs=lstm_params['epochs'], 
+            batch_size=lstm_params['batch_size'], 
+            verbose=1, 
+            validation_split=0.2
+        )
         
         # Evaluate each model individually
         ocsvm_predictions = self.predict_ocsvm(X_test)
