@@ -706,158 +706,484 @@ def adaptive_threshold_evaluation(thresholds: Dict[str, BaseThreshold],
 
 
 if __name__ == "__main__":
-    # Ejemplo de uso de umbrales adaptativos
-    import numpy as np
-    import matplotlib.pyplot as plt
-    
-    # Generar datos sintéticos
-    np.random.seed(42)
-    normal_scores = np.random.normal(0, 1, 1000)  # Puntuaciones normales
-    anomaly_scores = np.random.normal(4, 1, 50)   # Puntuaciones anómalas
-    
-    # Mezclar algunas anomalías
-    all_scores = np.copy(normal_scores)
-    anomaly_indices = np.random.choice(range(len(all_scores)), size=len(anomaly_scores), replace=False)
-    all_scores[anomaly_indices] = anomaly_scores
-    
-    # Crear diferentes umbrales
-    moving_stats = MovingStatsThreshold(name="MovingStats")
-    probabilistic = ProbabilisticThreshold(name="Probabilistic")
-    contextual = ContextualThreshold(name="Contextual")
-    
-    # Crear gestor de umbrales
-    manager = ThresholdManager()
-    manager.add_threshold(moving_stats)
-    manager.add_threshold(probabilistic)
-    manager.add_threshold(contextual)
-    
-    # Configurar meta-umbral
-    manager.setup_meta_threshold(weights=[1.0, 1.5, 0.8])
-    
-    # Procesar datos en lotes
-    batch_size = 50
-    thresholds_history = {
-        "MovingStats": [],
-        "Probabilistic": [],
-        "Contextual": [],
-        "meta_threshold": []
-    }
-    timestamps = []
-    
-    print("Procesando datos en lotes...")
-    for i in range(0, len(all_scores), batch_size):
-        batch = all_scores[i:i+batch_size]
-        batch_time = i / batch_size  # Timestamp simulado
-        timestamps.append(batch_time)
-        
-        # Actualizar cada umbral
-        for name, threshold in manager.thresholds.items():
-            threshold_value = threshold.update(batch)
-            thresholds_history[name].append(threshold_value)
-            print(f"Lote {i//batch_size + 1}: {name} = {threshold_value:.4f}")
-        
-        # Simular cambio de régimen en el punto medio
-        if i == len(all_scores) // 2:
-            print("\nCambio de régimen detectado, ajustando umbral contextual...\n")
-            contextual.set_regime("high_activity")
-    
-    # Visualizar resultados
     try:
-        plt.figure(figsize=(14, 10))
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from matplotlib.gridspec import GridSpec
+        import pandas as pd
+        from sklearn.metrics import precision_recall_curve, auc, roc_curve
+        import seaborn as sns
         
-        # Gráfico de puntuaciones y anomalías
-        plt.subplot(2, 1, 1)
-        plt.plot(all_scores, 'b-', alpha=0.5, label="Scores")
-        plt.scatter(anomaly_indices, all_scores[anomaly_indices], color='r', marker='x', s=100, label="Anomalías")
-        plt.title("Puntuaciones de anomalía")
-        plt.xlabel("Muestra")
-        plt.ylabel("Puntuación")
-        plt.legend()
-        plt.grid(True)
+        print("Demostración avanzada de umbrales adaptativos para detección de anomalías")
+        print("=" * 80)
         
-        # Gráfico de umbrales
-        plt.subplot(2, 1, 2)
-        batch_indices = range(0, len(all_scores), batch_size)
-        for name in thresholds_history.keys():
-            values = thresholds_history[name]
-            if len(values) > 0:  # Si hay valores registrados
-                plt.step(batch_indices[:len(values)], values, label=name, where='post')
+        # Generación de datos sintéticos complejos con múltiples regímenes
+        print("\nGenerando datos sintéticos con múltiples regímenes y tipos de anomalías...")
+        np.random.seed(42)
         
-        plt.title("Evolución de umbrales adaptativos")
-        plt.xlabel("Muestra")
-        plt.ylabel("Valor de umbral")
-        plt.legend()
-        plt.grid(True)
+        # Parámetros para la generación de datos
+        n_samples = 1000
+        regime_changes = [200, 500, 800]  # Puntos donde cambia el régimen
+        
+        # Generar datos base (distribución normal)
+        base_data = np.random.randn(n_samples)
+        
+        # Añadir tendencias y cambios de régimen
+        data = base_data.copy()
+        regimes = np.zeros(n_samples, dtype=int)
+        
+        # Régimen 1: Normal (0-200)
+        data[:regime_changes[0]] = data[:regime_changes[0]] * 0.5
+        
+        # Régimen 2: Actividad alta (200-500)
+        data[regime_changes[0]:regime_changes[1]] = data[regime_changes[0]:regime_changes[1]] * 1.5 + 1
+        regimes[regime_changes[0]:regime_changes[1]] = 1
+        
+        # Régimen 3: Actividad baja con ruido (500-800)
+        data[regime_changes[1]:regime_changes[2]] = data[regime_changes[1]:regime_changes[2]] * 0.3 - 0.5
+        regimes[regime_changes[1]:regime_changes[2]] = 2
+        
+        # Régimen 4: Volver a normal pero con más varianza (800-1000)
+        data[regime_changes[2]:] = data[regime_changes[2]:] * 0.7
+        regimes[regime_changes[2]:] = 3
+        
+        # Añadir componente estacional
+        seasonal_component = 0.5 * np.sin(np.linspace(0, 10 * np.pi, n_samples))
+        data = data + seasonal_component
+        
+        # Insertar anomalías de diferentes tipos
+        anomaly_indices = []
+        
+        # Tipo 1: Valores extremos aislados
+        spike_indices = [50, 150, 350, 650, 950]
+        for idx in spike_indices:
+            data[idx] = data[idx] + 4.0 if np.random.rand() > 0.5 else data[idx] - 4.0
+            anomaly_indices.append(idx)
+            
+        # Tipo 2: Secuencias anómalas (cambios de nivel)
+        sequence_starts = [250, 550, 850]
+        for start in sequence_starts:
+            length = np.random.randint(5, 15)
+            shift = 3.0 if np.random.rand() > 0.5 else -3.0
+            data[start:start+length] = data[start:start+length] + shift
+            anomaly_indices.extend(range(start, start+length))
+            
+        # Tipo 3: Cambios en varianza
+        variance_starts = [100, 400, 700]
+        for start in variance_starts:
+            length = np.random.randint(10, 20)
+            data[start:start+length] = data[start:start+length] * 3.0
+            anomaly_indices.extend(range(start, start+length))
+            
+        # Convertir a array y eliminar duplicados
+        anomaly_indices = np.unique(anomaly_indices)
+        anomaly_labels = np.zeros(n_samples)
+        anomaly_labels[anomaly_indices] = 1
+        
+        # Calcular puntuaciones de anomalía simuladas (ejemplo simple: distancia absoluta desde la media móvil)
+        window = 50
+        all_scores = np.zeros(n_samples)
+        
+        for i in range(n_samples):
+            if i < window:
+                window_start = 0
+            else:
+                window_start = i - window
+                
+            window_mean = np.mean(data[window_start:i+1])
+            all_scores[i] = abs(data[i] - window_mean)
+            
+        # Normalizar puntuaciones para que estén entre 0 y 1
+        all_scores = (all_scores - np.min(all_scores)) / (np.max(all_scores) - np.min(all_scores))
+        
+        # Crear gestor de umbrales
+        print("Inicializando y configurando estrategias de umbral...")
+        manager = ThresholdManager()
+        
+        # Crear diversas estrategias de umbral
+        # static_threshold = StaticThreshold("static", threshold_value=0.6)
+        moving_stats = MovingStatsThreshold("moving_stats")
+        probabilistic = ProbabilisticThreshold("probabilistic")
+        
+        # Crear umbral contextual para regímenes
+        contextual = ContextualThreshold("contextual")
+        
+        # Definir mapeo de regímenes a nombres consistentes con config.py
+        # Los regímenes en nuestros datos están como números (0, 1, 2, 3)
+        # Pero queremos usar nombres semánticos consistentes con la configuración
+        regime_mapping = {
+            0: "normal",             # Régimen 0: normal
+            1: "high_activity",      # Régimen 1: alta actividad 
+            2: "low_activity",       # Régimen 2: baja actividad
+            3: "transition"          # Régimen 3: transición (nuevo régimen)
+        }
+        
+        # Añadir el nuevo régimen al umbral contextual
+        # Todos los demás regímenes ya deberían existir en la configuración predeterminada
+        contextual.add_regime("transition", 0.55)  # Régimen de transición: umbral adaptado
+        
+        # Añadir umbrales al gestor
+        # manager.add_threshold(static_threshold)
+        manager.add_threshold(moving_stats)
+        manager.add_threshold(probabilistic)
+        manager.add_threshold(contextual)
+        
+        # Configurar meta-umbral
+        manager.setup_meta_threshold(
+            threshold_names=["moving_stats", "probabilistic", "contextual"],
+            weights=[1.0, 1.0, 1.5]
+        )
+        
+        # Simular procesamiento de datos en tiempo real y actualización de umbrales
+        print("Simulando procesamiento de datos en tiempo real...")
+        
+        # Almacenar valores de umbral para cada método a lo largo del tiempo
+        threshold_values = {
+            name: np.zeros(n_samples) for name in manager.thresholds.keys()
+        }
+        
+        # Procesar cada punto de datos secuencialmente
+        for i in range(n_samples):
+            # Convertir el valor numérico del régimen al nombre semántico correspondiente
+            current_regime_id = regimes[i]
+            current_regime_name = regime_mapping[current_regime_id]
+            
+            # Establecer régimen actual para el umbral contextual usando el nombre semántico
+            contextual.set_regime(current_regime_name)
+            
+            # Actualizar todos los umbrales con el nuevo punto
+            score_point = np.array([all_scores[i]])
+            manager.update(score_point)
+            
+            # Almacenar valores de umbral actuales
+            for name, threshold in manager.thresholds.items():
+                threshold_values[name][i] = threshold.get_threshold()
+        
+        # Comparar rendimiento de los diferentes métodos
+        print("\nEvaluando rendimiento de diferentes estrategias de umbral:")
+        
+        # Crear figura compleja para visualización
+        plt.figure(figsize=(15, 20))
+        gs = GridSpec(4, 2, height_ratios=[2, 1, 1, 1])
+        
+        # 1. Datos originales con anomalías marcadas
+        ax1 = plt.subplot(gs[0, :])
+        ax1.plot(data, 'b-', alpha=0.7, label='Datos')
+        ax1.scatter(anomaly_indices, data[anomaly_indices], color='red', s=50, marker='x', label='Anomalías reales')
+        
+        # Marcar cambios de régimen con líneas verticales
+        for change in regime_changes:
+            ax1.axvline(x=change, color='green', linestyle='--', alpha=0.7)
+            
+        ax1.set_title('Datos sintéticos con múltiples regímenes y anomalías', fontsize=14)
+        ax1.set_xlabel('Muestra')
+        ax1.set_ylabel('Valor')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Anotar los regímenes
+        regime_names = ['Normal', 'Alta actividad', 'Baja actividad', 'Normal con varianza']
+        regime_start = [0] + regime_changes
+        for i in range(len(regime_names)):
+            mid_point = (regime_start[i] + (regime_start[i+1] if i < len(regime_start)-1 else n_samples)) // 2
+            ax1.text(mid_point, ax1.get_ylim()[1] * 0.9, f'Régimen: {regime_names[i]}', 
+                    horizontalalignment='center', bbox=dict(facecolor='white', alpha=0.7))
+        
+        # 2. Puntuaciones de anomalía y umbrales
+        ax2 = plt.subplot(gs[1, :])
+        ax2.plot(all_scores, 'b-', label='Puntuación de anomalía')
+        
+        # Añadir líneas para cada umbral
+        for name, values in threshold_values.items():
+            ax2.plot(values, label=f'Umbral: {name}', alpha=0.7, linestyle='--')
+            
+        ax2.set_title('Puntuaciones de anomalía y umbrales adaptativos', fontsize=14)
+        ax2.set_xlabel('Muestra')
+        ax2.set_ylabel('Puntuación/Umbral')
+        ax2.legend(loc='upper right')
+        ax2.grid(True, alpha=0.3)
+        
+        # 3. Precisión-Recall para cada método
+        ax3 = plt.subplot(gs[2, 0])
+        
+        # Calculate a single precision-recall curve using the common anomaly scores
+        precision, recall, pr_thresholds = precision_recall_curve(anomaly_labels, all_scores)
+        pr_auc = auc(recall, precision)
+        
+        # Plot the precision-recall curve once - this is common for all methods
+        ax3.plot(recall, precision, 'b-', label=f'PR Curve (AUC={pr_auc:.3f})')
+        
+        # Calculate results for each threshold method and mark their position on the curve
+        results = []
+        markers = ['o', 's', 'D', '^', 'v']  # Different marker styles
+        colors = ['red', 'green', 'orange', 'purple', 'cyan']  # Different colors
+        
+        for i, (name, threshold_vals) in enumerate(threshold_values.items()):
+            # For each threshold method, calculate its performance metrics
+            predictions = all_scores > threshold_vals  # Apply method's thresholds
+            
+            # Calculate metrics using the thresholds from this method
+            true_positives = np.sum(predictions & (anomaly_labels == 1))
+            false_positives = np.sum(predictions & (anomaly_labels == 0))
+            false_negatives = np.sum((~predictions) & (anomaly_labels == 1))
+            
+            precision_val = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
+            recall_val = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
+            f1 = 2 * precision_val * recall_val / (precision_val + recall_val) if (precision_val + recall_val) > 0 else 0
+            
+            # Mark the threshold position on the PR curve
+            marker_idx = i % len(markers)
+            color_idx = i % len(colors)
+            ax3.scatter(recall_val, precision_val, marker=markers[marker_idx], color=colors[color_idx], 
+                       s=100, label=f'{name} (F1={f1:.3f})')
+            
+            # Store results for the table
+            results.append({
+                'method': name,
+                'threshold': threshold_vals[-1],
+                'anomalies_found': np.sum(predictions),
+                'precision': precision_val,
+                'recall': recall_val,
+                'f1': f1,
+                'pr_auc': pr_auc  # Same AUC for all since it's the same curve
+            })
+        
+        ax3.set_title('Curva Precision-Recall y Posición de Umbrales', fontsize=14)
+        ax3.set_xlabel('Recall')
+        ax3.set_ylabel('Precision')
+        ax3.grid(True, alpha=0.3)
+        ax3.legend(loc='lower left')
+        
+        # 4. ROC para cada método
+        ax4 = plt.subplot(gs[2, 1])
+        
+        # Calculate a single ROC curve using the common anomaly scores
+        fpr, tpr, roc_thresholds = roc_curve(anomaly_labels, all_scores)
+        roc_auc = auc(fpr, tpr)
+        
+        # Plot the ROC curve once
+        ax4.plot(fpr, tpr, 'b-', label=f'ROC Curve (AUC={roc_auc:.3f})')
+        
+        # Mark each threshold method's position on the ROC curve
+        for i, (name, threshold_vals) in enumerate(threshold_values.items()):
+            # Calculate the last FPR and TPR for this method
+            predictions = all_scores > threshold_vals[-1]
+            
+            # True positive rate and false positive rate
+            tpr_val = np.sum(predictions & (anomaly_labels == 1)) / np.sum(anomaly_labels == 1)
+            fpr_val = np.sum(predictions & (anomaly_labels == 0)) / np.sum(anomaly_labels == 0)
+            
+            # Mark the point on the ROC curve
+            marker_idx = i % len(markers)
+            color_idx = i % len(colors)
+            ax4.scatter(fpr_val, tpr_val, marker=markers[marker_idx], color=colors[color_idx], 
+                      s=100, label=f'{name}')
+            
+            # Update results with ROC metrics
+            for result in results:
+                if result['method'] == name:
+                    result['tpr'] = tpr_val
+                    result['fpr'] = fpr_val
+                    break
+                    
+        ax4.plot([0, 1], [0, 1], 'k--', label='Random')
+        ax4.set_title('Curva ROC y Posición de Umbrales', fontsize=14)
+        ax4.set_xlabel('Tasa de Falsos Positivos')
+        ax4.set_ylabel('Tasa de Verdaderos Positivos')
+        ax4.grid(True, alpha=0.3)
+        ax4.legend(loc='lower right')
+        
+        # 5. Análisis de sensibilidad a cambios de régimen
+        ax5 = plt.subplot(gs[3, 0])
+        sensitivity_data = {}
+        
+        for name, values in threshold_values.items():
+            regime_response = []
+            
+            # Medir tiempo de respuesta a cambios de régimen
+            for change in regime_changes:
+                # Medir cuánto tarda el umbral en estabilizarse tras cambio
+                if change < 10:
+                    continue
+                
+                baseline = values[change-10:change].mean()
+                stabilized = False
+                for i in range(30):  # Mirar 30 puntos después del cambio
+                    if i + change >= len(values):
+                        break
+                    current = values[change+i]
+                    # Verification to avoid division by zero or very small values
+                    if baseline != 0 and abs(current - baseline) / max(abs(baseline), 0.001) < 0.1:
+                        regime_response.append(i)
+                        stabilized = True
+                        break
+                
+                # If never stabilized, use max value (30)
+                if not stabilized:
+                    regime_response.append(30)
+                        
+            sensitivity_data[name] = regime_response
+        
+        # Visualizar tiempos de respuesta como diagrama de barras
+        methods = []
+        response_times = []
+        
+        for name, times in sensitivity_data.items():
+            if times:
+                methods.append(name)
+                response_times.append(np.mean(times))
+        
+        # Check if we have data to plot
+        if methods and response_times:
+            ax5.bar(methods, response_times)
+            ax5.set_title('Tiempo medio de respuesta a cambios de régimen', fontsize=14)
+            ax5.set_xlabel('Método')
+            ax5.set_ylabel('Muestras hasta estabilización')
+        else:
+            ax5.text(0.5, 0.5, "Datos insuficientes para análisis de respuesta", 
+                    horizontalalignment='center', verticalalignment='center')
+        
+        # 6. Análisis de estabilidad de umbral
+        ax6 = plt.subplot(gs[3, 1])
+        
+        # Calcular varianza móvil del umbral para evaluar estabilidad
+        window_size = 20
+        stability_data = {}
+        
+        for name, values in threshold_values.items():
+            if len(values) <= window_size:
+                continue
+                
+            variances = []
+            for i in range(window_size, len(values)):
+                window = values[i-window_size:i]
+                variances.append(np.var(window))
+            
+            if variances:
+                stability_data[name] = np.mean(variances)
+            
+        # Visualizar estabilidad como diagrama de barras
+        methods = list(stability_data.keys())
+        variance_values = list(stability_data.values())
+        
+        if methods and variance_values:
+            ax6.bar(methods, variance_values)
+            ax6.set_title('Estabilidad de umbrales (varianza promedio)', fontsize=14)
+            ax6.set_xlabel('Método')
+            ax6.set_ylabel('Varianza media')
+        else:
+            ax6.text(0.5, 0.5, "Datos insuficientes para análisis de estabilidad", 
+                    horizontalalignment='center', verticalalignment='center')
         
         plt.tight_layout()
-        plt.savefig("adaptive_thresholds.png")
-        print("\nGráfico guardado como 'adaptive_thresholds.png'")
+        plt.savefig("adaptive_thresholds_analysis.png", dpi=300, bbox_inches='tight')
+        print("\nAnálisis completo guardado como 'adaptive_thresholds_analysis.png'")
+        
+        # Mostrar resultados comparativos como tabla
+        print("\nResultados comparativos:")
+        results_df = pd.DataFrame(results)
+        
+        # Ordenar por F1-score descendente
+        results_df = results_df.sort_values('f1', ascending=False)
+        
+        print("\n{:<15} {:<10} {:<15} {:<10} {:<10} {:<10} {:<10}".format(
+            "Método", "Umbral", "Anomalías", "Precisión", "Recall", "F1", "AUC PR"))
+        print("-" * 85)
+        
+        for _, r in results_df.iterrows():
+            print("{:<15} {:<10.4f} {:<15d} {:<10.4f} {:<10.4f} {:<10.4f} {:<10.4f}".format(
+                r['method'], r['threshold'], r['anomalies_found'], 
+                r['precision'], r['recall'], r['f1'], r['pr_auc']))
+        
+        # Análisis con diferentes métricas
+        print("\nDemostración avanzada de umbral contextual con múltiples regímenes:")
+        
+        # Crear un nuevo umbral contextual para demostración
+        contextual_demo = ContextualThreshold("ContextualDemoAdvanced")
+        
+        # Configurar los regímenes utilizando el método add_regime para cada régimen
+        print("\n1. Configurando umbral contextual con mapeo de regímenes personalizado:")
+        contextual_demo.add_regime("low_activity", 0.3)     # Régimen de baja actividad: umbral bajo
+        contextual_demo.add_regime("high_activity", 0.7)    # Régimen de alta actividad: umbral alto
+        contextual_demo.add_regime("normal", 0.45)          # Régimen normal: umbral moderado
+        contextual_demo.add_regime("transition", 0.6)       # Régimen de transición: umbral intermedio
+        
+        print(f"   Mapeo configurado: {contextual_demo.regime_thresholds}")
+        
+        # Simular secuencia de cambios de régimen
+        print("\n2. Simulando secuencia de cambios de régimen:")
+        regime_sequence = [
+            "normal", "normal", "normal", 
+            "high_activity", "high_activity", 
+            "low_activity", "low_activity", "low_activity", 
+            "transition", "transition", 
+            "normal", "normal"
+        ]
+        
+        expected_thresholds = [contextual_demo.regime_thresholds[r] for r in regime_sequence]
+        
+        print("   Secuencia de regímenes:", regime_sequence)
+        print("   Umbrales esperados:", [f"{t:.2f}" for t in expected_thresholds])
+        
+        # Verificar que los umbrales se ajusten correctamente
+        actual_thresholds = []
+        for regime in regime_sequence:
+            contextual_demo.set_regime(regime)
+            actual_thresholds.append(contextual_demo.get_threshold())
+            
+        print("   Umbrales obtenidos:", [f"{t:.2f}" for t in actual_thresholds])
+        
+        # Demostrar capacidad de respuesta a cambios rápidos
+        print("\n3. Probando capacidad de respuesta a cambios rápidos de régimen:")
+        moving_threshold = MovingStatsThreshold("moving_test")
+        probabilistic_threshold = ProbabilisticThreshold("prob_test")
+        
+        # Simular un cambio rápido en los datos
+        base_scores = np.random.normal(0, 1, 30)
+        shift_scores = np.random.normal(3, 1, 20)  # Cambio significativo
+        combined_scores = np.concatenate([base_scores, shift_scores])
+        
+        print("   Procesando 50 puntos con un cambio brusco en el punto 30...")
+        
+        # Procesar puntos secuencialmente
+        contextual_values = []
+        moving_values = []
+        probabilistic_values = []
+        
+        for i, score in enumerate(combined_scores):
+            # Actualizar umbrales
+            point = np.array([score])
+            
+            # Usar nombres semánticos para los regímenes
+            regime_name = "high_activity" if i >= 30 else "normal"
+            contextual_demo.set_regime(regime_name)
+            moving_threshold.update(point)
+            probabilistic_threshold.update(point)
+            
+            # Guardar valores
+            contextual_values.append(contextual_demo.get_threshold())
+            moving_values.append(moving_threshold.get_threshold())
+            probabilistic_values.append(probabilistic_threshold.get_threshold())
+            
+        print("   Tiempo de respuesta a cambio brusco (muestras):")
+        print(f"   - Contextual: 0 (inmediato, basado en régimen)")
+        
+        # Calcular tiempo de respuesta para otros métodos
+        moving_response = 0
+        prob_response = 0
+        
+        for i in range(30, 50):
+            if moving_response == 0 and moving_values[i] > moving_values[29] * 1.2:
+                moving_response = i - 30 + 1
+                
+            if prob_response == 0 and probabilistic_values[i] > probabilistic_values[29] * 1.2:
+                prob_response = i - 30 + 1
+                
+        print(f"   - Estadísticas móviles: {moving_response} muestras")
+        print(f"   - Probabilístico: {prob_response} muestras")
         
     except Exception as e:
-        print(f"No se pudo crear visualización: {str(e)}")
-    
-    # Comparar métodos de umbral
-    print("\nComparación de métodos de umbral:")
-    results = []
-    for name, threshold in manager.thresholds.items():
-        # Obtener valores finales
-        threshold_value = threshold.get_threshold()
-        predictions = all_scores > threshold_value
-        anomalies = np.where(predictions)[0]
-        
-        # Calcular precisión (considerando anomaly_indices como verdaderos positivos)
-        true_positives = np.intersect1d(anomalies, anomaly_indices).shape[0]
-        precision = true_positives / max(len(anomalies), 1)
-        
-        # Calcular recall
-        recall = true_positives / len(anomaly_indices)
-        
-        results.append({
-            'method': name,
-            'threshold': threshold_value,
-            'anomalies_found': len(anomalies),
-            'precision': precision,
-            'recall': recall,
-            'f1': 2 * precision * recall / max((precision + recall), 1e-10)
-        })
-    
-    # Mostrar resultados como tabla
-    print("\n{:<15} {:<10} {:<15} {:<10} {:<10} {:<10}".format(
-        "Método", "Umbral", "Anomalías", "Precisión", "Recall", "F1"))
-    print("-" * 70)
-    
-    for r in results:
-        print("{:<15} {:<10.4f} {:<15d} {:<10.4f} {:<10.4f} {:<10.4f}".format(
-            r['method'], r['threshold'], r['anomalies_found'], 
-            r['precision'], r['recall'], r['f1']))
-    
-    # Demostración de umbral contextual con múltiples regímenes
-    print("\nDemostración de umbral contextual con múltiples regímenes:")
-    contextual_demo = ContextualThreshold("ContextualDemo")
-    contextual_demo.add_regime("normal", 0.5)
-    contextual_demo.add_regime("low_activity", 0.3)
-    contextual_demo.add_regime("high_activity", 0.8)
-    
-    regimes = ["normal", "low_activity", "high_activity", "normal"]
-    for regime in regimes:
-        contextual_demo.set_regime(regime)
-        print(f"Régimen: {regime}, Umbral: {contextual_demo.get_threshold():.4f}")
-    
-    # Ejemplo de feedback basado en validación externa
-    print("\nEjemplo de umbral con retroalimentación:")
-    meta = manager.thresholds["meta_threshold"]
-    
-    # Simular algunas validaciones (retroalimentación)
-    meta.register_feedback(was_anomaly=True, predicted_anomaly=True)   # Verdadero positivo
-    meta.register_feedback(was_anomaly=True, predicted_anomaly=False)  # Falso negativo
-    meta.register_feedback(was_anomaly=False, predicted_anomaly=True)  # Falso positivo
-    meta.register_feedback(was_anomaly=False, predicted_anomaly=True)  # Falso positivo
-    
-    # Forzar un ajuste basado en el feedback
-    meta._adjust_weights()
-    print("Después de retroalimentación, pesos ajustados:")
-    for detector_name, weight in meta.threshold_weights.items():
-        print(f"  {detector_name}: {weight:.4f}")
-    
-    print("\nEjemplo completado.")
+        print(f"No se pudo completar el análisis: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
