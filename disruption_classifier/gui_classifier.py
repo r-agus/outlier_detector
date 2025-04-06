@@ -3,7 +3,7 @@ from tkinter import ttk, scrolledtext, messagebox, filedialog
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
-import threading
+import threading  # Keep for checking the main thread
 import time
 import os
 import json
@@ -389,25 +389,18 @@ class DisruptionClassifierGUI:
                 # Future step
                 indicator.config(text="○", foreground="black")
     
-    def safe_update_ui(self, target_func, *args, **kwargs):
-        """Thread-safe way to update UI elements"""
-        if threading.current_thread() is threading.main_thread():
-            # If we're already on the main thread, just call the function directly
-            return target_func(*args, **kwargs)
-        else:
-            # Otherwise, schedule it to be run on the main thread
-            return self.root.after(0, target_func, *args, **kwargs)
-
     def set_status(self, status_text):
-        """Thread-safe status update"""
-        self.safe_update_ui(self.status_var.set, status_text)
+        """Update status text"""
+        self.status_var.set(status_text)
+        self.root.update_idletasks()  # Update UI immediately
 
     def set_progress(self, progress_value):
-        """Thread-safe progress update"""
-        self.safe_update_ui(self.progress_var.set, progress_value)
+        """Update progress bar"""
+        self.progress_var.set(progress_value)
+        self.root.update_idletasks()  # Update UI immediately
 
     def run_with_progress(self, func, next_step=True):
-        """Run a function with progress updates"""
+        """Run a function with progress updates in the main thread"""
         self.set_progress(0)
         
         # Disable all buttons during processing
@@ -416,39 +409,30 @@ class DisruptionClassifierGUI:
         self.analyze_btn.config(state=tk.DISABLED)
         self.predict_btn.config(state=tk.DISABLED)
         
-        def worker():
-            try:
-                func()
-                
-                # All UI updates need to be scheduled on the main thread
-                def complete_task():
-                    # First increment the step if needed
-                    if next_step:
-                        self.current_step += 1
-                        self.update_step_indicators()
-                    
-                    # Then enable appropriate buttons based on the updated step
-                    if self.current_step >= 1:
-                        self.load_data_btn.config(state=tk.NORMAL)
-                        self.train_models_btn.config(state=tk.NORMAL)
-                    if self.current_step >= 2:
-                        self.analyze_btn.config(state=tk.NORMAL)
-                    if self.current_step >= 3:
-                        self.predict_btn.config(state=tk.NORMAL)
-                    
-                    self.progress_var.set(100)
-                
-                self.safe_update_ui(complete_task)
-                
-            except Exception as e:
-                def show_error():
-                    messagebox.showerror("Error", str(e))
-                    self.status_var.set(f"Error: {str(e)}")
-                    self.load_data_btn.config(state=tk.NORMAL)
-                
-                self.safe_update_ui(show_error)
-        
-        threading.Thread(target=worker).start()
+        try:
+            # Execute the function directly in the main thread
+            func()
+            
+            # Increment the step if needed
+            if next_step:
+                self.current_step += 1
+                self.update_step_indicators()
+            
+            # Enable appropriate buttons based on the updated step
+            if self.current_step >= 1:
+                self.load_data_btn.config(state=tk.NORMAL)
+                self.train_models_btn.config(state=tk.NORMAL)
+            if self.current_step >= 2:
+                self.analyze_btn.config(state=tk.NORMAL)
+            if self.current_step >= 3:
+                self.predict_btn.config(state=tk.NORMAL)
+            
+            self.progress_var.set(100)
+            
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            self.status_var.set(f"Error: {str(e)}")
+            self.load_data_btn.config(state=tk.NORMAL)
     
     def load_data(self):
         self.set_status("Loading discharge data...")
@@ -488,15 +472,12 @@ class DisruptionClassifierGUI:
                     summary += "\t"
             
             # Schedule UI updates on the main thread
-            def update_text():
-                self.data_text.delete(1.0, tk.END)
-                self.data_text.insert(tk.END, summary)
-                self.set_status(f"Data loaded: {total_discharges} discharges")
-                
-                # Update discharge list in the combobox
-                self.update_discharge_list()
+            self.data_text.delete(1.0, tk.END)
+            self.data_text.insert(tk.END, summary)
+            self.set_status(f"Data loaded: {total_discharges} discharges")
             
-            self.safe_update_ui(update_text)
+            # Update discharge list in the combobox
+            self.update_discharge_list()
         
         self.run_with_progress(process)
     
@@ -507,11 +488,8 @@ class DisruptionClassifierGUI:
             test_size = self.test_size_var.get()
             
             # Clear previous results (schedule on main thread)
-            def clear_charts():
-                for widget in self.charts_frame.winfo_children():
-                    widget.destroy()
-            
-            self.safe_update_ui(clear_charts)
+            for widget in self.charts_frame.winfo_children():
+                widget.destroy()
                 
             # Train models
             self.set_progress(10)
@@ -622,24 +600,21 @@ class DisruptionClassifierGUI:
             fig2.tight_layout(rect=[0, 0, 1, 0.95])
             
             # Update UI on main thread
-            def update_charts():
-                canvas1 = FigureCanvasTkAgg(fig1, master=self.charts_frame)
-                canvas1.draw()
-                canvas1.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-                
-                canvas2 = FigureCanvasTkAgg(fig2, master=self.charts_frame)
-                canvas2.draw()
-                canvas2.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
-                
-                # Update the discharge list to show training/test indicators
-                self.update_discharge_list()
-                
-                self.set_status("Models trained successfully")
-                
-                # Make sure we reach step 3 after training (fix for predict button not being enabled)
-                self.current_step = 3
+            canvas1 = FigureCanvasTkAgg(fig1, master=self.charts_frame)
+            canvas1.draw()
+            canvas1.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
             
-            self.safe_update_ui(update_charts)
+            canvas2 = FigureCanvasTkAgg(fig2, master=self.charts_frame)
+            canvas2.draw()
+            canvas2.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            
+            # Update the discharge list to show training/test indicators
+            self.update_discharge_list()
+            
+            self.set_status("Models trained successfully")
+            
+            # Make sure we reach step 3 after training (fix for predict button not being enabled)
+            self.current_step = 3
         
         self.run_with_progress(process)
     
@@ -743,99 +718,93 @@ class DisruptionClassifierGUI:
                     plt.tight_layout()
                     
                     # Schedule UI updates on main thread
-                    def update_ui():
-                        # Display in the predictions tab
-                        for widget in self.predictions_tab.winfo_children():
-                            widget.destroy()
-                        
-                        # Add text area
-                        self.prediction_text = scrolledtext.ScrolledText(self.predictions_tab, height=10)
-                        self.prediction_text.pack(fill=tk.X)
-                        
-                        # Add prediction text
-                        self.prediction_text.insert(tk.END, prediction_results)
-                        
-                        # Add data source warning if needed
-                        if is_training:
-                            warning_frame = ttk.Frame(self.predictions_tab)
-                            warning_frame.pack(fill=tk.X, pady=5)
-                            
-                            warning_label = ttk.Label(
-                                warning_frame,
-                                text="⚠️ WARNING: This discharge was used for TRAINING the model! ⚠️",
-                                font=("Arial", 12, "bold"),
-                                foreground="red",
-                                background="yellow"
-                            )
-                            warning_label.pack(fill=tk.X, padx=10, pady=5)
-                            
-                            warning_text = ttk.Label(
-                                warning_frame,
-                                text="Results may be biased since the model has seen this data before.",
-                                font=("Arial", 10),
-                                foreground="black"
-                            )
-                            warning_text.pack(fill=tk.X, padx=10, pady=5)
-                        
-                        # Add canvas
-                        canvas = FigureCanvasTkAgg(fig, master=self.predictions_tab)
-                        canvas.draw()
-                        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-                        
-                        # Add final result label with large colored text
-                        result_frame = ttk.Frame(self.predictions_tab)
-                        result_frame.pack(fill=tk.X, pady=10)
-                        
-                        # Show data source
-                        ttk.Label(
-                            result_frame,
-                            text=f"DATA SOURCE: {data_status}",
-                            font=("Arial", 10),
-                            foreground="blue" if is_test else ("red" if is_training else "purple")
-                        ).pack()
-                        
-                        final_result = "DISRUPTIVE" if result['final'] == 1 else "NON-DISRUPTIVE"
-                        result_color = "red" if result['final'] == 1 else "green"
-                        
-                        ttk.Label(
-                            result_frame, 
-                            text=f"FINAL PREDICTION: {final_result}",
-                            font=("Arial", 16, "bold"),
-                            foreground=result_color
-                        ).pack()
-                        
-                        actual_result = "DISRUPTIVE" if result['actual'] == 1 else "NON-DISRUPTIVE"
-                        actual_color = "red" if result['actual'] == 1 else "green"
-                        
-                        ttk.Label(
-                            result_frame, 
-                            text=f"ACTUAL VALUE: {actual_result}",
-                            font=("Arial", 14),
-                            foreground=actual_color
-                        ).pack()
-                        
-                        # Show if prediction was correct
-                        correct = result['final'] == result['actual']
-                        ttk.Label(
-                            result_frame, 
-                            text=f"PREDICTION WAS {'CORRECT' if correct else 'INCORRECT'}",
-                            font=("Arial", 12, "bold"),
-                            foreground="blue" if correct else "purple"
-                        ).pack()
-                        
-                        # Switch to the predictions tab
-                        self.results_notebook.select(self.predictions_tab)
+                    # Display in the predictions tab
+                    for widget in self.predictions_tab.winfo_children():
+                        widget.destroy()
                     
-                    self.safe_update_ui(update_ui)
+                    # Add text area
+                    self.prediction_text = scrolledtext.ScrolledText(self.predictions_tab, height=10)
+                    self.prediction_text.pack(fill=tk.X)
+                    
+                    # Add prediction text
+                    self.prediction_text.insert(tk.END, prediction_results)
+                    
+                    # Add data source warning if needed
+                    if is_training:
+                        warning_frame = ttk.Frame(self.predictions_tab)
+                        warning_frame.pack(fill=tk.X, pady=5)
+                        
+                        warning_label = ttk.Label(
+                            warning_frame,
+                            text="⚠️ WARNING: This discharge was used for TRAINING the model! ⚠️",
+                            font=("Arial", 12, "bold"),
+                            foreground="red",
+                            background="yellow"
+                        )
+                        warning_label.pack(fill=tk.X, padx=10, pady=5)
+                        
+                        warning_text = ttk.Label(
+                            warning_frame,
+                            text="Results may be biased since the model has seen this data before.",
+                            font=("Arial", 10),
+                            foreground="black"
+                        )
+                        warning_text.pack(fill=tk.X, padx=10, pady=5)
+                    
+                    # Add canvas
+                    canvas = FigureCanvasTkAgg(fig, master=self.predictions_tab)
+                    canvas.draw()
+                    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+                    
+                    # Add final result label with large colored text
+                    result_frame = ttk.Frame(self.predictions_tab)
+                    result_frame.pack(fill=tk.X, pady=10)
+                    
+                    # Show data source
+                    ttk.Label(
+                        result_frame,
+                        text=f"DATA SOURCE: {data_status}",
+                        font=("Arial", 10),
+                        foreground="blue" if is_test else ("red" if is_training else "purple")
+                    ).pack()
+                    
+                    final_result = "DISRUPTIVE" if result['final'] == 1 else "NON-DISRUPTIVE"
+                    result_color = "red" if result['final'] == 1 else "green"
+                    
+                    ttk.Label(
+                        result_frame, 
+                        text=f"FINAL PREDICTION: {final_result}",
+                        font=("Arial", 16, "bold"),
+                        foreground=result_color
+                    ).pack()
+                    
+                    actual_result = "DISRUPTIVE" if result['actual'] == 1 else "NON-DISRUPTIVE"
+                    actual_color = "red" if result['actual'] == 1 else "green"
+                    
+                    ttk.Label(
+                        result_frame, 
+                        text=f"ACTUAL VALUE: {actual_result}",
+                        font=("Arial", 14),
+                        foreground=actual_color
+                    ).pack()
+                    
+                    # Show if prediction was correct
+                    correct = result['final'] == result['actual']
+                    ttk.Label(
+                        result_frame, 
+                        text=f"PREDICTION WAS {'CORRECT' if correct else 'INCORRECT'}",
+                        font=("Arial", 12, "bold"),
+                        foreground="blue" if correct else "purple"
+                    ).pack()
+                    
+                    # Switch to the predictions tab
+                    self.results_notebook.select(self.predictions_tab)
                 
                 self.set_status(f"Prediction for discharge {discharge_id} complete")
                 
             except Exception as e:
-                def show_error():
-                    messagebox.showerror("Prediction Error", str(e))
-                    self.status_var.set(f"Error: {str(e)}")
-                
-                self.safe_update_ui(show_error)
+                messagebox.showerror("Prediction Error", str(e))
+                self.status_var.set(f"Error: {str(e)}")
         
         self.run_with_progress(process, next_step=False)
     
