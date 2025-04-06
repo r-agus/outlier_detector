@@ -740,7 +740,7 @@ class IForestTunerApp:
         self.results_text.insert(tk.END, f"Test scores (normal): min={np.min(test_normal_scores):.4f}, "
                            f"mean={np.mean(test_normal_scores):.4f}, max={np.max(test_normal_scores):.4f}\n")
         self.results_text.insert(tk.END, f"Test scores (disruptive): min={np.min(test_disruptive_scores):.4f}, "
-                           f"mean={np.mean(test_disruptive_scores)::.4f}, max={np.max(test_disruptive_scores):.4f}\n")
+                           f"mean={np.mean(test_disruptive_scores):.4f}, max={np.max(test_disruptive_scores):.4f}\n")
         
         # How many samples are classified as anomalies based on the threshold
         train_anomaly_count = np.sum(train_scores > threshold)
@@ -874,17 +874,15 @@ class IForestTunerApp:
         disruptive_idx = self.y_test == 1
         normal_idx = self.y_test == 0
         
-        # If we have both classes in test set
-        if np.sum(disruptive_idx) > 0 and np.sum(normal_idx) > 0:
-            # Mean score difference between disruptive and normal samples
-            # Higher is better - more separation between classes
-            score_separation = np.mean(test_scores[disruptive_idx]) - np.mean(test_scores[normal_idx])
-        else:
-            score_separation = -99  # Not applicable
+        # Use absolute difference to ensure positive values
+        score_separation = abs(np.mean(test_scores[disruptive_idx]) - np.mean(test_scores[normal_idx]))
         
         if verbose:
             return test_f1, test_acc, test_prec, test_rec, score_separation
         
+        # At the end of train_with_params, before returning
+        self.results_text.insert(tk.END, f"Debug - predictions: {np.sum(y_test_pred == 0)} normal, {np.sum(y_test_pred == 1)} disruptive\n")
+
         # Return both F1 and score separation to use as backup
         return test_f1, score_separation
         
