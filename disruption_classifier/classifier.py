@@ -2,20 +2,16 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-import tensorflow as tf
 
-# Import our new modules
-from data_processor import group_by_feature, normalize_feature_groups, extract_features_from_time_series
-from ocsvm_model import prepare_features_for_ocsvm, train_ocsvm_model, predict_with_ocsvm
-from iforest_model import prepare_features_for_iforest, train_iforest_model, predict_with_iforest
-from lstm_model import prepare_features_for_lstm, train_lstm_model, predict_with_lstm
+# Import model-specific modules
+from ocsvm_model import prepare_features_for_ocsvm, train_ocsvm_model, predict_with_ocsvm, prepare_ocsvm_features_for_single_discharge
+from iforest_model import prepare_features_for_iforest, train_iforest_model, predict_with_iforest, prepare_iforest_features_for_single_discharge
+from lstm_model import prepare_features_for_lstm, train_lstm_model, predict_with_lstm, prepare_lstm_features_for_single_discharge
 
 DISCHARGE_DATA_PATH = 'C:\\Users\\Ruben\\Documents\\python-disruption-predictor\\remuestreados' # Path to the directory containing discharge data files
-DISCHARGES_ETIQUETATION_DATA_FILE = '..\\rust-disruptor-predictor\\discharges-c23.txt' # Path to the file containing discharge etiquetation data, which includes the discharge and the time when the disruption happened, or 0 if it didn't happen.
-
+DISCHARGES_ETIQUETATION_DATA_FILE = 'C:\\Users\\Ruben\\Documents\\tfg_julian\\rust-disruptor-predictor\\discharges-c23.txt' # Path to the file containing discharge etiquetation data, which includes the discharge and the time when the disruption happened, or 0 if it didn't happen.
 
 class DisruptionClassifier:
     def __init__(self, data_path, discharge_list_path):
@@ -26,7 +22,8 @@ class DisruptionClassifier:
         self.ocsvm_model = None
         self.iforest_model = None
         self.lstm_model = None
-        self.scaler = StandardScaler()
+        self.iforest_scaler = None
+        self.lstm_scaler = None
         self.advanced_features = None  # To store advanced features for OCSVM
         
     def load_discharge_list(self):
@@ -77,135 +74,107 @@ class DisruptionClassifier:
                 self.discharge_data[discharge_id] = features
         
         print(f"Loaded data for {len(self.discharge_data)} discharges")
-        
-    def prepare_features(self):
-        """Extract features from the time series data for IForest and LSTM."""
-        X = []
-        y = []
-        discharge_ids = []
-        
-        for discharge_id, features in self.discharge_data.items():
-            # Extract relevant features from each time series
-            feature_vector = []
-            
-            for feature_num, feature_data in features.items():
-                # Simple features: mean, std, min, max, etc.
-                feature_vector.extend([
-                    feature_data['value'].mean(),
-                    feature_data['value'].std(),
-                    feature_data['value'].min(),
-                    feature_data['value'].max(),
-                    feature_data['value'].skew(),
-                    feature_data['value'].kurtosis()
-                ])
-            
-            X.append(feature_vector)
-            y.append(self.discharge_labels[discharge_id])
-            discharge_ids.append(discharge_id)
-            
-        # Convert to numpy arrays
-        X = np.array(X)
-        y = np.array(y)
-        
-        # Scale the features
-        X_scaled = self.scaler.fit_transform(X)
-        
-        return X_scaled, y, discharge_ids
-    
-    def prepare_advanced_features(self, debug_output=False):
-        """Prepare advanced features for OCSVM using the new feature extraction."""
-        # Group data by feature number
-        feature_groups = group_by_feature(self.discharge_data)
-        
-        # Normalize each feature group
-        normalized_groups = normalize_feature_groups(feature_groups, debug_output)
-        
-        # Extract advanced features
-        self.advanced_features = extract_features_from_time_series(normalized_groups)
-        
-        # Prepare features for OCSVM
-        X_ocsvm, y_ocsvm, ids_ocsvm = prepare_features_for_ocsvm(
-            self.advanced_features, self.discharge_labels
-        )
-        
-        return X_ocsvm, y_ocsvm, ids_ocsvm
-    
-    def prepare_lstm_data(self, X_scaled, y):
-        """Prepare data specifically for LSTM model."""
-        return prepare_features_for_lstm(X_scaled, y)
     
     def train_models(self, test_size=0.2, random_state=42, ocsvm_params=None, iforest_params=None, lstm_params=None):
         """Train all models and evaluate them."""
-        # Prepare regular features for IForest and LSTM
-        X_scaled, y, discharge_ids = self.prepare_features()
+        # Prepare features for OCSVM (including advanced feature extraction)
+        X_ocsvm, y_ocsvm, ids_ocsvm, self.advanced_features = prepare_features_for_ocsvm(self.discharge_data, self.discharge_labels)
         
-        # Prepare advanced features for OCSVM
-        X_ocsvm, y_ocsvm, ids_ocsvm = self.prepare_advanced_features()
+        # Prepare features for Isolation Forest
+        X_iforest, y_iforest, ids_iforest, self.iforest_scaler = prepare_features_for_iforest(self.discharge_data, self.discharge_labels)
         
-        # Split data for regular features
-        X_train, X_test, y_train, y_test, ids_train, ids_test = train_test_split(
-            X_scaled, y, discharge_ids, test_size=test_size, random_state=random_state,
-            stratify=y
-        )
+        # Prepare features for LSTM
+        X_lstm, y_lstm, ids_lstm, self.lstm_scaler = prepare_features_for_lstm(self.discharge_data, self.discharge_labels)
         
-        # Split data for OCSVM features
+        # Split data for each model
         X_ocsvm_train, X_ocsvm_test, y_ocsvm_train, y_ocsvm_test, ids_ocsvm_train, ids_ocsvm_test = train_test_split(
             X_ocsvm, y_ocsvm, ids_ocsvm, test_size=test_size, random_state=random_state,
             stratify=y_ocsvm
         )
         
-        print(f"Training set: {len(X_train)} samples")
-        print(f"Test set: {len(X_test)} samples")
+        X_iforest_train, X_iforest_test, y_iforest_train, y_iforest_test, ids_iforest_train, ids_iforest_test = train_test_split(
+            X_iforest, y_iforest, ids_iforest, test_size=test_size, random_state=random_state,
+            stratify=y_iforest
+        )
+        
+        X_lstm_train, X_lstm_test, y_lstm_train, y_lstm_test, ids_lstm_train, ids_lstm_test = train_test_split(
+            X_lstm, y_lstm, ids_lstm, test_size=test_size, random_state=random_state,
+            stratify=y_lstm
+        )
+        
+        print(f"Training set: {len(X_ocsvm_train)} samples")
+        print(f"Test set: {len(X_ocsvm_test)} samples")
         print(f"Test size: {test_size}")
         
-        # Train OCSVM with new features
+        # Train models
         self.ocsvm_model = train_ocsvm_model(X_ocsvm_train, y_ocsvm_train, ocsvm_params)
-        
-        # Train Isolation Forest with regular features
-        X_iforest_train, y_iforest_train, ids_iforest_train = prepare_features_for_iforest(X_train, y_train, ids_train)
         self.iforest_model = train_iforest_model(X_iforest_train, y_iforest_train, iforest_params, random_state)
-        
-        # Train LSTM
-        X_lstm_train, _ = self.prepare_lstm_data(X_train, y_train)
-        X_lstm_test, _ = self.prepare_lstm_data(X_test, y_test)
-        self.lstm_model = train_lstm_model(X_lstm_train, y_train, lstm_params)
+        self.lstm_model = train_lstm_model(X_lstm_train, y_lstm_train, lstm_params)
         
         # Evaluate each model individually
         ocsvm_predictions = self.predict_ocsvm(X_ocsvm_test)
-        iforest_predictions = self.predict_iforest(X_test)
+        iforest_predictions = self.predict_iforest(X_iforest_test)
         lstm_predictions = self.predict_lstm(X_lstm_test)
         
         print("\nOCSVM Results:")
-        print(classification_report(y_test, ocsvm_predictions))
+        print(classification_report(y_ocsvm_test, ocsvm_predictions))
         
         print("\nIsolation Forest Results:")
-        print(classification_report(y_test, iforest_predictions))
+        print(classification_report(y_iforest_test, iforest_predictions))
         
         print("\nLSTM Results:")
-        print(classification_report(y_test, lstm_predictions))
+        print(classification_report(y_lstm_test, lstm_predictions))
         
-        # Evaluate combined model
-        combined_predictions = self.combine_predictions(ocsvm_predictions, iforest_predictions, lstm_predictions)
+        # To combine predictions, we need to ensure they're aligned by discharge ID
+        # Create alignment between ids_*_test lists
+        all_ids = list(set(ids_ocsvm_test) & set(ids_iforest_test) & set(ids_lstm_test))
+        
+        # Create aligned predictions and labels
+        aligned_ocsvm_preds = []
+        aligned_iforest_preds = []
+        aligned_lstm_preds = []
+        aligned_true_labels = []
+        
+        for discharge_id in all_ids:
+            ocsvm_idx = ids_ocsvm_test.index(discharge_id)
+            iforest_idx = ids_iforest_test.index(discharge_id)
+            lstm_idx = ids_lstm_test.index(discharge_id)
+            
+            aligned_ocsvm_preds.append(ocsvm_predictions[ocsvm_idx])
+            aligned_iforest_preds.append(iforest_predictions[iforest_idx])
+            aligned_lstm_preds.append(lstm_predictions[lstm_idx])
+            aligned_true_labels.append(y_ocsvm_test[ocsvm_idx])  # All y_*_test should have the same label for each ID
+        
+        # Convert to numpy arrays
+        aligned_ocsvm_preds = np.array(aligned_ocsvm_preds)
+        aligned_iforest_preds = np.array(aligned_iforest_preds)
+        aligned_lstm_preds = np.array(aligned_lstm_preds)
+        aligned_true_labels = np.array(aligned_true_labels)
+        
+        # Combine predictions
+        combined_predictions = self.combine_predictions(
+            aligned_ocsvm_preds, aligned_iforest_preds, aligned_lstm_preds
+        )
         
         print("\nCombined Model Results:")
-        print(classification_report(y_test, combined_predictions))
+        print(classification_report(aligned_true_labels, combined_predictions))
         
         # Save test set details for later analysis
         self.test_data = {
-            'X_test': X_test,
             'X_ocsvm_test': X_ocsvm_test,
-            'y_test': y_test,
-            'ids_test': ids_test,
-            'X_lstm_test': X_lstm_test
+            'X_iforest_test': X_iforest_test,
+            'X_lstm_test': X_lstm_test,
+            'y_test': y_ocsvm_test,  # Use any of the y_*_test
+            'ids_test': all_ids
         }
         
         return {
-            'ocsvm': ocsvm_predictions,
-            'iforest': iforest_predictions,
-            'lstm': lstm_predictions,
+            'ocsvm': aligned_ocsvm_preds,
+            'iforest': aligned_iforest_preds,
+            'lstm': aligned_lstm_preds,
             'combined': combined_predictions,
-            'true': y_test,
-            'ids': ids_test
+            'true': aligned_true_labels,
+            'ids': all_ids
         }
     
     def predict_ocsvm(self, X):
@@ -235,49 +204,22 @@ class DisruptionClassifier:
             print(f"Discharge {discharge_id} not found in data")
             return None
             
-        # Extract regular features for this discharge for IForest and LSTM
-        features = {}
-        for feature_num, feature_data in self.discharge_data[discharge_id].items():
-            features[feature_num] = [
-                feature_data['value'].mean(),
-                feature_data['value'].std(),
-                feature_data['value'].min(),
-                feature_data['value'].max(),
-                feature_data['value'].skew(),
-                feature_data['value'].kurtosis()
-            ]
-            
-        # Flatten features list
-        feature_vector = []
-        for i in range(1, 8):
-            if i in features:
-                feature_vector.extend(features[i])
-            else:
-                # Fill with zeros for missing features
-                feature_vector.extend([0, 0, 0, 0, 0, 0])
-                
-        # Scale the feature vector
-        X = np.array([feature_vector])
-        X_scaled = self.scaler.transform(X)
-        X_lstm = np.reshape(X_scaled, (X_scaled.shape[0], 1, X_scaled.shape[1]))
+        # Get features for each model
+        X_ocsvm = prepare_ocsvm_features_for_single_discharge(
+            self.discharge_data, self.advanced_features, discharge_id
+        )
         
-        # Get OCSVM advanced features
-        if self.advanced_features and discharge_id in self.advanced_features:
-            ocsvm_features = []
-            for i in range(1, 8):
-                if i in self.advanced_features[discharge_id]:
-                    ocsvm_features.extend(self.advanced_features[discharge_id][i])
-                else:
-                    ocsvm_features.extend([0, 0, 0, 0, 0, 0])  # 6 values per feature
-                    
-            X_ocsvm = np.array([ocsvm_features])
-        else:
-            # If advanced features aren't available, use regular features
-            X_ocsvm = X_scaled
-            
+        X_iforest = prepare_iforest_features_for_single_discharge(
+            self.discharge_data, discharge_id, self.iforest_scaler
+        )
+        
+        X_lstm = prepare_lstm_features_for_single_discharge(
+            self.discharge_data, discharge_id, self.lstm_scaler
+        )
+        
         # Get predictions from each model
         ocsvm_pred = self.predict_ocsvm(X_ocsvm)[0]
-        iforest_pred = self.predict_iforest(X_scaled)[0]
+        iforest_pred = self.predict_iforest(X_iforest)[0]
         lstm_pred = self.predict_lstm(X_lstm)[0]
         
         # Final prediction using majority voting
@@ -304,33 +246,27 @@ class DisruptionClassifier:
         if not hasattr(self, 'test_data'):
             print("No test data available. Run train_models first.")
             return
-            
-        X_test = self.test_data['X_test']
-        X_ocsvm_test = self.test_data['X_ocsvm_test'] 
-        X_lstm_test = self.test_data['X_lstm_test']
-        y_test = self.test_data['y_test']
-        ids_test = self.test_data['ids_test']
         
-        ocsvm_pred = self.predict_ocsvm(X_ocsvm_test)
-        iforest_pred = self.predict_iforest(X_test)
-        lstm_pred = self.predict_lstm(X_lstm_test)
-        combined_pred = self.combine_predictions(ocsvm_pred, iforest_pred, lstm_pred)
+        ids_test = self.test_data['ids_test']
+        results = {}
         
         print("\nDetailed test set results:")
-        for i, discharge_id in enumerate(ids_test):
-            print(f"\nDischarge {discharge_id}:")
-            print(f"Actual: {'Disruptive' if y_test[i] == 1 else 'Non-disruptive'}")
-            print(f"OCSVM: {'Disruptive' if ocsvm_pred[i] == 1 else 'Non-disruptive'}")
-            print(f"IForest: {'Disruptive' if iforest_pred[i] == 1 else 'Non-disruptive'}")
-            print(f"LSTM: {'Disruptive' if lstm_pred[i] == 1 else 'Non-disruptive'}")
-            print(f"Combined: {'Disruptive' if combined_pred[i] == 1 else 'Non-disruptive'}")
+        for discharge_id in ids_test:
+            result = self.predict_discharge(discharge_id)
+            results[discharge_id] = result
             
         # Calculate overall metrics
+        actuals = [results[id]['actual'] for id in ids_test]
+        ocsvm_preds = [results[id]['ocsvm'] for id in ids_test]
+        iforest_preds = [results[id]['iforest'] for id in ids_test]
+        lstm_preds = [results[id]['lstm'] for id in ids_test]
+        final_preds = [results[id]['final'] for id in ids_test]
+        
         print("\nOverall Accuracy:")
-        print(f"OCSVM: {accuracy_score(y_test, ocsvm_pred):.4f}")
-        print(f"Isolation Forest: {accuracy_score(y_test, iforest_pred):.4f}")
-        print(f"LSTM: {accuracy_score(y_test, lstm_pred):.4f}")
-        print(f"Combined: {accuracy_score(y_test, combined_pred):.4f}")
+        print(f"OCSVM: {accuracy_score(actuals, ocsvm_preds):.4f}")
+        print(f"Isolation Forest: {accuracy_score(actuals, iforest_preds):.4f}")
+        print(f"LSTM: {accuracy_score(actuals, lstm_preds):.4f}")
+        print(f"Combined: {accuracy_score(actuals, final_preds):.4f}")
 
 # Main code to run the classifier
 if __name__ == "__main__":
@@ -361,7 +297,7 @@ if __name__ == "__main__":
     # Print precision and recall for each model
     print("\nPrecision and Recall:")
     for model_name, predictions in results.items():
-        if model_name != 'true':
+        if model_name != 'true' and model_name != 'ids':
             precision = np.sum((predictions == 1) & (results['true'] == 1)) / np.sum(predictions == 1)
             recall = np.sum((predictions == 1) & (results['true'] == 1)) / np.sum(results['true'] == 1)
             print(f"{model_name}: Precision = {precision:.4f}, Recall = {recall:.4f}")
