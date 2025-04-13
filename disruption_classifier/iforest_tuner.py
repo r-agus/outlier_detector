@@ -737,8 +737,8 @@ class IForestTunerApp:
         test_normal_scores = test_scores[self.y_test == 0]
         test_disruptive_scores = test_scores[self.y_test == 1]
         
-        self.results_text.insert(tk.END, f"Test scores (normal): min={np.min(test_normal_scores):.4f}, "
-                           f"mean={np.mean(test_normal_scores):.4f}, max={np.max(test_normal_scores):.4f}\n")
+        # self.results_text.insert(tk.END, f"Test scores (normal): min={np.min(test_normal_scores):.4f}, "
+                        #    f"mean={np.mean(test_normal_scores):.4f}, max={np.max(test_normal_scores):.4f}\n")
         self.results_text.insert(tk.END, f"Test scores (disruptive): min={np.min(test_disruptive_scores):.4f}, "
                            f"mean={np.mean(test_disruptive_scores):.4f}, max={np.max(test_disruptive_scores):.4f}\n")
         
