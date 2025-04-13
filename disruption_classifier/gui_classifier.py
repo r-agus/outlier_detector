@@ -7,6 +7,7 @@ import threading  # Keep for checking the main thread
 import time
 import os
 import json
+import pickle  # Add this import for model serialization
 from sklearn.metrics import confusion_matrix
 import seaborn as sns
 
@@ -187,6 +188,25 @@ class DisruptionClassifierGUI:
             state=tk.DISABLED
         )
         self.analyze_btn.pack(fill=tk.X, pady=5)
+        
+        # Add model save/load buttons
+        self.models_frame = ttk.LabelFrame(parent, text="Model Management")
+        self.models_frame.pack(fill=tk.X, pady=5)
+        
+        self.save_models_btn = ttk.Button(
+            self.models_frame, 
+            text="Save Trained Models", 
+            command=self.save_models,
+            state=tk.DISABLED
+        )
+        self.save_models_btn.pack(fill=tk.X, pady=2)
+        
+        self.load_models_btn = ttk.Button(
+            self.models_frame, 
+            text="Load Trained Models", 
+            command=self.load_models
+        )
+        self.load_models_btn.pack(fill=tk.X, pady=2)
         
         # Prediction
         self.predict_frame = ttk.Frame(parent)
@@ -408,6 +428,8 @@ class DisruptionClassifierGUI:
         self.train_models_btn.config(state=tk.DISABLED)
         self.analyze_btn.config(state=tk.DISABLED)
         self.predict_btn.config(state=tk.DISABLED)
+        self.save_models_btn.config(state=tk.DISABLED)  # Also disable save button
+        self.load_models_btn.config(state=tk.DISABLED)  # Also disable load button
         
         try:
             # Execute the function directly in the main thread
@@ -424,8 +446,12 @@ class DisruptionClassifierGUI:
                 self.train_models_btn.config(state=tk.NORMAL)
             if self.current_step >= 2:
                 self.analyze_btn.config(state=tk.NORMAL)
+                self.save_models_btn.config(state=tk.NORMAL)  # Enable save after training
             if self.current_step >= 3:
                 self.predict_btn.config(state=tk.NORMAL)
+            
+            # Always enable load button
+            self.load_models_btn.config(state=tk.NORMAL)
             
             self.progress_var.set(100)
             
@@ -433,6 +459,7 @@ class DisruptionClassifierGUI:
             messagebox.showerror("Error", str(e))
             self.status_var.set(f"Error: {str(e)}")
             self.load_data_btn.config(state=tk.NORMAL)
+            self.load_models_btn.config(state=tk.NORMAL)  # Always enable load button
     
     def load_data(self):
         self.set_status("Loading discharge data...")
@@ -807,6 +834,96 @@ class DisruptionClassifierGUI:
                 self.status_var.set(f"Error: {str(e)}")
         
         self.run_with_progress(process, next_step=False)
+    
+    def save_models(self):
+        """Save trained models to a pickle file"""
+        if not hasattr(self.classifier, 'ocsvm_model') or self.classifier.ocsvm_model is None:
+            messagebox.showwarning("Warning", "No trained models available to save.")
+            return
+            
+        try:
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".pkl",
+                filetypes=[("Pickle files", "*.pkl"), ("All files", "*.*")],
+                title="Save Trained Models"
+            )
+            
+            if not file_path:
+                return  # User cancelled
+                
+            # Prepare data to save
+            model_data = {
+                'ocsvm_model': self.classifier.ocsvm_model,
+                'iforest_model': self.classifier.iforest_model,
+                'lstm_model': self.classifier.lstm_model,
+                'scaler': self.classifier.scaler,
+                'test_data': getattr(self.classifier, 'test_data', None),
+                'training_ids': self.training_ids,
+                'test_ids': self.test_ids
+            }
+            
+            with open(file_path, 'wb') as f:
+                pickle.dump(model_data, f)
+                
+            self.status_var.set(f"Models saved to {os.path.basename(file_path)}")
+            
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save models: {str(e)}")
+    
+    def load_models(self):
+        """Load trained models from a pickle file"""
+        try:
+            file_path = filedialog.askopenfilename(
+                filetypes=[("Pickle files", "*.pkl"), ("All files", "*.*")],
+                title="Load Trained Models"
+            )
+            
+            if not file_path:
+                return  # User cancelled
+            
+            self.set_status(f"Loading models from {os.path.basename(file_path)}...")
+            self.set_progress(10)
+            
+            with open(file_path, 'rb') as f:
+                model_data = pickle.load(f)
+            
+            self.set_progress(50)
+            
+            # Apply loaded models to classifier
+            self.classifier.ocsvm_model = model_data['ocsvm_model']
+            self.classifier.iforest_model = model_data['iforest_model']
+            self.classifier.lstm_model = model_data['lstm_model']
+            self.classifier.scaler = model_data['scaler']
+            
+            if 'test_data' in model_data and model_data['test_data'] is not None:
+                self.classifier.test_data = model_data['test_data']
+            
+            # Restore training and test sets
+            if 'training_ids' in model_data and model_data['training_ids'] is not None:
+                self.training_ids = model_data['training_ids']
+            if 'test_ids' in model_data and model_data['test_ids'] is not None:
+                self.test_ids = model_data['test_ids']
+            
+            self.set_progress(80)
+            
+            # Update discharge list if data is loaded
+            if hasattr(self.classifier, 'discharge_labels') and self.classifier.discharge_labels:
+                self.update_discharge_list()
+            
+            # Enable appropriate buttons
+            self.save_models_btn.config(state=tk.NORMAL)
+            self.analyze_btn.config(state=tk.NORMAL)
+            self.predict_btn.config(state=tk.NORMAL)
+            
+            # Update current step
+            self.current_step = 3  # Set to completed training
+            self.update_step_indicators()
+            
+            self.set_progress(100)
+            self.set_status(f"Models loaded from {os.path.basename(file_path)}")
+            
+        except Exception as e:
+            messagebox.showerror("Load Error", f"Failed to load models: {str(e)}")
     
     def save_config(self):
         """Save current model parameters to a JSON file"""
