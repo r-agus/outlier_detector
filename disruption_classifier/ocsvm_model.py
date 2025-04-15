@@ -39,20 +39,16 @@ def extract_features_from_time_series(normalized_groups, window_size=16):
                 fft_result = np.fft.fft(window)
                 fft_without_dc = fft_result[1:]  # Remove DC component
                 fft_magnitude = np.abs(fft_without_dc)
-                
-                # Use a few representative values from the FFT
-                # Taking the first 5 frequency components
-                fft_features = fft_magnitude[:5] if len(fft_magnitude) >= 5 else np.pad(fft_magnitude, (0, 5-len(fft_magnitude)))
-                
+                fft_energy = np.mean(fft_magnitude) if len(fft_magnitude) > 0 else 0  # TODO: Is this correct?
                 # Combine features
-                window_features.append(np.concatenate([[window_mean], fft_features]))
+                window_features.append(np.array([window_mean, fft_energy]))
             
             # Average the features across all windows for this discharge and feature
             if window_features:
                 extracted_features[discharge_id][feature_num] = np.mean(window_features, axis=0)
             else:
                 # Handle case with not enough data for a window
-                extracted_features[discharge_id][feature_num] = np.zeros(6)  # mean + 5 FFT components
+                extracted_features[discharge_id][feature_num] = np.zeros(2)  # mean + FFT energy
     
     return extracted_features
 
@@ -87,14 +83,14 @@ def prepare_features_for_ocsvm(discharge_data, discharge_labels, debug_output=Fa
     for discharge_id, features in advanced_features.items():
         # Create a flat feature vector for this discharge
         feature_vector = []
-        
+    
         # Collect features for each feature type (1-7)
         for feature_num in range(1, 8):
             if feature_num in features:
                 feature_vector.extend(features[feature_num])
             else:
                 # If feature is missing, add zeros
-                feature_vector.extend([0, 0, 0, 0, 0, 0])  # 6 values per feature
+                feature_vector.extend([0, 0])  # 2 values per feature
         
         X.append(feature_vector)
         y.append(discharge_labels[discharge_id])
@@ -121,9 +117,9 @@ def train_ocsvm_model(X_train, y_train, params=None):
     # Filter to use only non-disruptive cases
     X_train_normal = X_train[y_train == 0]
     
-    # Use default parameters if not provided
+    # Use updated default parameters if not provided
     if params is None:
-        params = {'kernel': 'rbf', 'nu': 0.1, 'gamma': 'auto'}
+        params = {'kernel': 'rbf', 'nu': 0.1, 'gamma': 'scale'}
     
     # Print OCSVM parameters
     print("\n" + "="*50)
@@ -131,6 +127,7 @@ def train_ocsvm_model(X_train, y_train, params=None):
     print(f"  - kernel: {params['kernel']}")
     print(f"  - nu: {params['nu']}")
     print(f"  - gamma: {params['gamma']}")
+    print(f"Training OCSVM on {X_train_normal.shape[0]} normal samples.")
     print("="*50)
     
     # Create and train the model
@@ -140,17 +137,17 @@ def train_ocsvm_model(X_train, y_train, params=None):
         gamma=params['gamma']
     )
     model.fit(X_train_normal)
-    
+
     return model
 
 def predict_with_ocsvm(model, X):
     """
     Make predictions using the OCSVM model.
-    
+
     Args:
         model: Trained OCSVM model
         X: Features to predict
-        
+
     Returns:
         Binary predictions (0 for normal, 1 for anomaly/disruption)
     """
@@ -177,7 +174,7 @@ def prepare_ocsvm_features_for_single_discharge(discharge_data, advanced_feature
             if i in advanced_features[discharge_id]:
                 ocsvm_features.extend(advanced_features[discharge_id][i])
             else:
-                ocsvm_features.extend([0, 0, 0, 0, 0, 0])  # 6 values per feature
+                ocsvm_features.extend([0, 0])
                 
         X_ocsvm = np.array([ocsvm_features])
         return X_ocsvm
@@ -199,6 +196,6 @@ def prepare_ocsvm_features_for_single_discharge(discharge_data, advanced_feature
             if feature_num in advanced_features[discharge_id]:
                 feature_vector.extend(advanced_features[discharge_id][feature_num])
             else:
-                feature_vector.extend([0, 0, 0, 0, 0, 0])  # 6 values per feature
+                feature_vector.extend([0, 0])
                 
         return np.array([feature_vector])
