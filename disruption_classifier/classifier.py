@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.preprocessing import StandardScaler
 
 # Import model-specific modules
 from ocsvm_model import prepare_features_for_ocsvm, train_ocsvm_model, predict_with_ocsvm, prepare_ocsvm_features_for_single_discharge
@@ -24,6 +25,7 @@ class DisruptionClassifier:
         self.lstm_model = None
         self.iforest_scaler = None
         self.lstm_scaler = None
+        self.ocsvm_scaler = None
         self.advanced_features = None  # To store advanced features for OCSVM
         
     def load_discharge_list(self):
@@ -96,6 +98,11 @@ class DisruptionClassifier:
             stratify=y_lstm
         )
         
+        # Added scaling for OCSVM features
+        self.ocsvm_scaler = StandardScaler()
+        X_ocsvm_train = self.ocsvm_scaler.fit_transform(X_ocsvm_train)
+        X_ocsvm_test = self.ocsvm_scaler.transform(X_ocsvm_test)
+        
         print(f"Training set: {len(X_ocsvm_train)} samples")
         print(f"Test set: {len(X_ocsvm_test)} samples")
         print(f"Test size: {test_size}")
@@ -111,13 +118,13 @@ class DisruptionClassifier:
         lstm_predictions = self.predict_lstm(X_lstm_test)
         
         print("\nOCSVM Results:")
-        print(classification_report(y_ocsvm_test, ocsvm_predictions))
+        print(classification_report(y_ocsvm_test, ocsvm_predictions, zero_division=0))
         
         print("\nIsolation Forest Results:")
-        print(classification_report(y_iforest_test, iforest_predictions))
+        print(classification_report(y_iforest_test, iforest_predictions, zero_division=0))
         
         print("\nLSTM Results:")
-        print(classification_report(y_lstm_test, lstm_predictions))
+        print(classification_report(y_lstm_test, lstm_predictions, zero_division=0))
         
         # To combine predictions, we need to ensure they're aligned by discharge ID
         # Create alignment between ids_*_test lists
@@ -151,7 +158,7 @@ class DisruptionClassifier:
         )
         
         print("\nCombined Model Results:")
-        print(classification_report(aligned_true_labels, combined_predictions))
+        print(classification_report(aligned_true_labels, combined_predictions, zero_division=0))
         
         # Save test set details for later analysis
         self.test_data = {
@@ -173,6 +180,8 @@ class DisruptionClassifier:
 
     def predict_ocsvm(self, X):
         """Predict using OCSVM model."""
+        # Apply the same scaling as used during training
+        X = self.ocsvm_scaler.transform(X)
         return predict_with_ocsvm(self.ocsvm_model, X)
     
     def predict_iforest(self, X):
