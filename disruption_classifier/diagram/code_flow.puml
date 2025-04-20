@@ -1,0 +1,52 @@
+@startuml DisruptionClassifier
+
+title Disruption Classifier Workflow
+
+start
+
+partition Initialization {
+  :Initialize DisruptionClassifier with data paths;
+}
+
+partition "Data Loading" {
+  :Load discharge list with disruption labels;
+  :Load feature data for all discharges;
+  note right: Processes data from 7 different features
+}
+
+partition "Model Training" {
+  :Prepare features for OCSVM, IForest, LSTM;
+  note right: Each model uses different feature representations
+  
+  :Split data into training and test sets;
+  
+  fork
+    :Scale and train OCSVM model;
+  fork again
+    :Train Isolation Forest model;
+  fork again
+    :Train LSTM model;
+  end fork
+  
+  :Predict on test set with each model;
+  :Evaluate individual model performance;
+  
+  :Align predictions by discharge ID;
+  :Combine predictions (majority voting);
+  :Evaluate combined model performance;
+}
+
+partition "Analysis" {
+  :Analyze test set in detail;
+  note right: Runs predictions on all test discharges
+  
+  :Calculate overall metrics;
+  note right: Accuracy, precision, recall
+  
+  :Predict for sample discharges;
+  note right: Applies all models to specific cases
+}
+
+stop
+
+@enduml

@@ -1,0 +1,69 @@
+@startuml IForest_Model_Technical_Workflow
+
+title Isolation Forest Model for Disruption Detection - Technical Workflow
+
+partition "Anomaly Detection Concept" {
+  :Consider disruptions as anomalies;
+  note right: Anomaly score indicates disruption likelihood
+  
+  :Random partitioning creates isolation trees;
+  note right: Anomalies require fewer splits to isolate
+}
+
+partition "Feature Engineering" {
+  :Extract statistical features from time series;
+  note right: Mean, variance, skewness, kurtosis
+  
+  :Calculate rate of change features;
+  note right: First and second derivatives
+  
+  :Extract frequency domain features;
+  note right: FFT components
+  
+  :Apply StandardScaler to features;
+  note right: Store scaler for later prediction
+}
+
+partition "Model Configuration" {
+  :Define hyperparameters;
+  note right: n_estimators=100, contamination=auto
+  
+  :Random forest of isolation trees;
+  note right: Each tree randomly selects features
+  
+  :Random split points for each node;
+  note right: Recursive binary partitioning
+}
+
+partition "Model Training" {
+  :Create ensemble of isolation trees;
+  note right: train_iforest_model()
+  
+  :Train on features from non-disruptive data only;
+  note right: Semi-supervised approach
+  
+  :Calculate path length for each sample;
+  note right: Shorter path = more anomalous
+  
+  :Compute anomaly score threshold;
+  note right: Based on contamination parameter
+}
+
+partition "Prediction Pipeline" {
+  :Extract features from new discharge;
+  note right: prepare_iforest_features_for_single_discharge()
+  
+  :Apply same scaling as training;
+  note right: Uses stored iforest_scaler
+  
+  :Compute average path length;
+  note right: For each tree in ensemble
+  
+  :Calculate anomaly score;
+  note right: 2^(-avg_path_length/c(n))
+  
+  :Apply threshold to anomaly score;
+  note right: score > threshold → Disruptive (1)
+}
+
+@enduml
