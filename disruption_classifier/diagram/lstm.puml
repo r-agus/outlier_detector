@@ -1,0 +1,68 @@
+@startuml LSTM_Model_Technical_Workflow
+
+title LSTM Model for Disruption Classification - Technical Workflow
+
+partition "Feature Engineering" {
+  :Load time series data for each discharge;
+  :Segment time series into windows;
+  :Create sequence data with lookback window;
+  note right: Temporal features preserve sequence information
+  
+  :Reshape data to [samples, timesteps, features];
+  :Scale features using StandardScaler;
+  note right: Store scaler for later prediction
+  
+  :Split X_lstm into training/test sets;
+  note right: Stratified split by disruption label
+}
+
+partition "Model Architecture" {
+  :Initialize LSTM network;
+  :Add LSTM layer;
+  note right: Units=64, return_sequences=True
+  
+  :Add Dropout layer;
+  note right: rate=0.2, prevent overfitting
+  
+  :Add LSTM layer;
+  note right: Units=32
+  
+  :Add Dropout layer;
+  note right: rate=0.2
+  
+  :Add Dense output layer;
+  note right: sigmoid activation
+}
+
+partition "Model Training" {
+  :Compile model;
+  note right: binary_crossentropy loss
+  
+  :Fit model on training data;
+  note right: batch_size=32, epochs=50
+  
+  :Track validation loss;
+  note right: Early stopping callback
+  
+  :Save best model weights;
+}
+
+partition "Prediction Pipeline" {
+  :Prepare timestep sequences;
+  note right: prepare_lstm_features_for_single_discharge()
+  
+  :Apply same scaling as training;
+  note right: Uses stored lstm_scaler
+  
+  :Reshape for LSTM input;
+  note right: [samples, timesteps, features]
+  
+  :Forward pass through model;
+  
+  :Apply threshold to probabilities;
+  note right: p >= 0.5 → Disruptive (1)
+  
+  :Return binary prediction;
+}
+
+@enduml

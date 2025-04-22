@@ -2,18 +2,17 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.svm import OneClassSVM
-from sklearn.ensemble import IsolationForest
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from sklearn.preprocessing import StandardScaler
+
+# Import model-specific modules
+from ocsvm_model import prepare_features_for_ocsvm, train_ocsvm_model, predict_with_ocsvm, prepare_ocsvm_features_for_single_discharge
+from iforest_model import prepare_features_for_iforest, train_iforest_model, predict_with_iforest, prepare_iforest_features_for_single_discharge
+from lstm_model import prepare_features_for_lstm, train_lstm_model, predict_with_lstm, prepare_lstm_features_for_single_discharge
 
 DISCHARGE_DATA_PATH = 'C:\\Users\\Ruben\\Documents\\python-disruption-predictor\\remuestreados' # Path to the directory containing discharge data files
-DISCHARGES_ETIQUETATION_DATA_FILE = '..\\rust-disruptor-predictor\\discharges-c23.txt' # Path to the file containing discharge etiquetation data, which includes the discharge and the time when the disruption happened, or 0 if it didn't happen.
-
+DISCHARGES_ETIQUETATION_DATA_FILE = 'C:\\Users\\Ruben\\Documents\\tfg_julian\\rust-disruptor-predictor\\discharges-c23.txt' # Path to the file containing discharge etiquetation data, which includes the discharge and the time when the disruption happened, or 0 if it didn't happen.
 
 class DisruptionClassifier:
     def __init__(self, data_path, discharge_list_path):
@@ -24,319 +23,212 @@ class DisruptionClassifier:
         self.ocsvm_model = None
         self.iforest_model = None
         self.lstm_model = None
-        self.scaler = StandardScaler()
+        self.iforest_scaler = None
+        self.lstm_scaler = None
+        self.ocsvm_scaler = None
+        self.advanced_features = None  # To store advanced features for OCSVM
         
     def load_discharge_list(self):
-        """Load the list of discharges and their labels."""
-        discharge_df = pd.read_csv(self.discharge_list_path, sep='\\s+', header=None, 
+        discharge_df = pd.read_csv(self.discharge_list_path, sep='\\s+', header=None,
                                    names=['discharge_id', 'disruption_time'])
-        
+
         for _, row in discharge_df.iterrows():
             discharge_id = str(int(row['discharge_id']))
             disruption_time = row['disruption_time']
-            # Label: 1 if disruptive (non-zero disruption time), 0 if not
             label = 1 if disruption_time > 0 else 0
             self.discharge_labels[discharge_id] = label
-        
+
         return discharge_df
-    
+
     def load_feature_data(self, discharge_id, feature_num):
-        """Load a specific feature file for a discharge."""
-        # Find the appropriate file
         feature_str = f"{int(feature_num):02d}"
-        feature_files = [f for f in os.listdir(self.data_path) 
-                        if f.startswith(f"DES_{discharge_id}_{feature_str}")]
-        
+        feature_files = [f for f in os.listdir(self.data_path)
+                         if f.startswith(f"DES_{discharge_id}_{feature_str}")]
+
         if not feature_files:
             print(f"No file found for discharge {discharge_id}, feature {feature_num}")
             return None
-        
-        # Load the feature data
+
         feature_path = os.path.join(self.data_path, feature_files[0])
-        feature_data = pd.read_csv(feature_path, sep='\\s+', header=None, 
-                                  names=['time', 'value'])
+        feature_data = pd.read_csv(feature_path, sep='\\s+', header=None,
+                                   names=['time', 'value'])
         return feature_data
-    
+
     def load_all_data(self):
-        """Load all discharge data for all features."""
         discharge_df = self.load_discharge_list()
-        
+
         for _, row in discharge_df.iterrows():
             discharge_id = str(int(row['discharge_id']))
             features = {}
-            
+
             for feature_num in range(1, 8):
                 feature_data = self.load_feature_data(discharge_id, feature_num)
                 if feature_data is not None:
                     features[feature_num] = feature_data
-            
+
             if features:
                 self.discharge_data[discharge_id] = features
-        
+
         print(f"Loaded data for {len(self.discharge_data)} discharges")
-        
-    def prepare_features(self):
-        """Extract features from the time series data."""
-        X = []
-        y = []
-        discharge_ids = []
-        
-        for discharge_id, features in self.discharge_data.items():
-            # Extract relevant features from each time series
-            feature_vector = []
-            
-            for feature_num, feature_data in features.items():
-                # Simple features: mean, std, min, max, etc.
-                feature_vector.extend([
-                    feature_data['value'].mean(),
-                    feature_data['value'].std(),
-                    feature_data['value'].min(),
-                    feature_data['value'].max(),
-                    feature_data['value'].skew(),
-                    feature_data['value'].kurtosis()
-                ])
-            
-            X.append(feature_vector)
-            y.append(self.discharge_labels[discharge_id])
-            discharge_ids.append(discharge_id)
-            
-        # Convert to numpy arrays
-        X = np.array(X)
-        y = np.array(y)
-        
-        # Scale the features
-        X_scaled = self.scaler.fit_transform(X)
-        
-        return X_scaled, y, discharge_ids
-    
-    def prepare_lstm_data(self, X_scaled, y, sequence_length=10):
-        """Prepare data specifically for LSTM model."""
-        # Reshape data for LSTM: [samples, time steps, features]
-        X_lstm = np.reshape(X_scaled, (X_scaled.shape[0], 1, X_scaled.shape[1]))
-        return X_lstm, y
     
     def train_models(self, test_size=0.2, random_state=42, ocsvm_params=None, iforest_params=None, lstm_params=None):
         """Train all models and evaluate them."""
-        X_scaled, y, discharge_ids = self.prepare_features()
+        # Prepare features for OCSVM (including advanced feature extraction)
+        X_ocsvm, y_ocsvm, ids_ocsvm, self.advanced_features = prepare_features_for_ocsvm(self.discharge_data, self.discharge_labels)
         
-        # Split data ensuring test set has at least one of each class
-        X_train, X_test, y_train, y_test, ids_train, ids_test = train_test_split(
-            X_scaled, y, discharge_ids, test_size=test_size, random_state=random_state,
-            stratify=y
+        # Prepare features for Isolation Forest
+        X_iforest, y_iforest, ids_iforest, self.iforest_scaler = prepare_features_for_iforest(self.discharge_data, self.discharge_labels)
+        
+        # Prepare features for LSTM
+        X_lstm, y_lstm, ids_lstm, self.lstm_scaler = prepare_features_for_lstm(self.discharge_data, self.discharge_labels)
+        
+        # Split data for each model
+        X_ocsvm_train, X_ocsvm_test, y_ocsvm_train, y_ocsvm_test, ids_ocsvm_train, ids_ocsvm_test = train_test_split(
+            X_ocsvm, y_ocsvm, ids_ocsvm, test_size=test_size, random_state=random_state,
+            stratify=y_ocsvm
         )
         
-        print(f"Training set: {len(X_train)} samples")
-        print(f"Test set: {len(X_test)} samples")
+        X_iforest_train, X_iforest_test, y_iforest_train, y_iforest_test, ids_iforest_train, ids_iforest_test = train_test_split(
+            X_iforest, y_iforest, ids_iforest, test_size=test_size, random_state=random_state,
+            stratify=y_iforest
+        )
+        
+        X_lstm_train, X_lstm_test, y_lstm_train, y_lstm_test, ids_lstm_train, ids_lstm_test = train_test_split(
+            X_lstm, y_lstm, ids_lstm, test_size=test_size, random_state=random_state,
+            stratify=y_lstm
+        )
+        
+        # Added scaling for OCSVM features
+        self.ocsvm_scaler = StandardScaler()
+        X_ocsvm_train = self.ocsvm_scaler.fit_transform(X_ocsvm_train)
+        X_ocsvm_test = self.ocsvm_scaler.transform(X_ocsvm_test)
+        
+        print(f"Training set: {len(X_ocsvm_train)} samples")
+        print(f"Test set: {len(X_ocsvm_test)} samples")
         print(f"Test size: {test_size}")
         
-        # Train OCSVM - train only on non-disruptive cases (label 0)
-        X_train_normal = X_train[y_train == 0]
-        
-        # Use default parameters if not provided
-        if ocsvm_params is None:
-            ocsvm_params = {'kernel': 'rbf', 'nu': 0.1, 'gamma': 'auto'}
-        else:
-            print("\nReceived custom OCSVM parameters from GUI")
-        
-        # Print OCSVM parameters
-        print("\n" + "="*50)
-        print("OCSVM Parameters:")
-        print(f"  - kernel: {ocsvm_params['kernel']}")
-        print(f"  - nu: {ocsvm_params['nu']}")
-        print(f"  - gamma: {ocsvm_params['gamma']}")
-        print("="*50)
-        
-        self.ocsvm_model = OneClassSVM(
-            kernel=ocsvm_params['kernel'], 
-            nu=ocsvm_params['nu'], 
-            gamma=ocsvm_params['gamma']
-        )
-        self.ocsvm_model.fit(X_train_normal)
-        
-        # Train Isolation Forest - again, train only on normal data
-        if iforest_params is None:
-            iforest_params = {'n_estimators': 100, 'contamination': 0.1, 'max_features': 1.0}
-        else:
-            print("\nReceived custom Isolation Forest parameters from GUI")
-        
-        # Print Isolation Forest parameters
-        print("\n" + "="*50)
-        print("Isolation Forest Parameters:")
-        print(f"  - n_estimators: {iforest_params['n_estimators']}")
-        print(f"  - contamination: {iforest_params['contamination']}")
-        print(f"  - max_features: {iforest_params['max_features']}")
-        print("="*50)
-        
-        self.iforest_model = IsolationForest(
-            random_state=random_state, 
-            n_estimators=int(iforest_params['n_estimators']),
-            contamination=float(iforest_params['contamination']), 
-            max_features=float(iforest_params['max_features'])
-        )
-        self.iforest_model.fit(X_train_normal)
-        
-        # Train LSTM
-        X_lstm_train, _ = self.prepare_lstm_data(X_train, y_train)
-        X_lstm_test, _ = self.prepare_lstm_data(X_test, y_test)
-        
-        # Use default parameters if not provided
-        if lstm_params is None:
-            lstm_params = {
-                'layer1_units': 64,
-                'layer2_units': 32,
-                'dropout_rate': 0.2,
-                'learning_rate': 0.001,
-                'batch_size': 16,
-                'epochs': 100
-            }
-        else:
-            print("\nReceived custom LSTM parameters from GUI")
-        
-        # Print LSTM parameters
-        print("\n" + "="*50)
-        print("LSTM Network Parameters:")
-        print(f"  - layer1_units: {lstm_params['layer1_units']}")
-        print(f"  - layer2_units: {lstm_params['layer2_units']}")
-        print(f"  - dropout_rate: {lstm_params['dropout_rate']}")
-        print(f"  - learning_rate: {lstm_params['learning_rate']}")
-        print(f"  - batch_size: {lstm_params['batch_size']}")
-        print(f"  - epochs: {lstm_params['epochs']}")
-        print("="*50 + "\n")
-        
-        # LSTM model for binary classification
-        self.lstm_model = Sequential([
-            LSTM(lstm_params['layer1_units'], input_shape=(1, X_train.shape[1]), return_sequences=True),
-            Dropout(lstm_params['dropout_rate']),
-            LSTM(lstm_params['layer2_units']),
-            Dense(16, activation='relu'),
-            Dense(1, activation='sigmoid')
-        ])
-        
-        # Use Adam optimizer with custom learning rate
-        optimizer = tf.keras.optimizers.Adam(learning_rate=lstm_params['learning_rate'])
-        
-        self.lstm_model.compile(optimizer=optimizer, loss='binary_crossentropy', metrics=['accuracy'])
-        self.lstm_model.fit(
-            X_lstm_train, y_train, 
-            epochs=lstm_params['epochs'], 
-            batch_size=lstm_params['batch_size'], 
-            verbose=1, 
-            validation_split=0.2
-        )
+        # Train models
+        self.ocsvm_model = train_ocsvm_model(X_ocsvm_train, y_ocsvm_train, ocsvm_params)
+        self.iforest_model = train_iforest_model(X_iforest_train, y_iforest_train, iforest_params, random_state)
+        self.lstm_model = train_lstm_model(X_lstm_train, y_lstm_train, lstm_params)
         
         # Evaluate each model individually
-        ocsvm_predictions = self.predict_ocsvm(X_test)
-        iforest_predictions = self.predict_iforest(X_test)
+        ocsvm_predictions = self.predict_ocsvm(X_ocsvm_test)
+        iforest_predictions = self.predict_iforest(X_iforest_test)
         lstm_predictions = self.predict_lstm(X_lstm_test)
         
         print("\nOCSVM Results:")
-        print(classification_report(y_test, ocsvm_predictions))
+        print(classification_report(y_ocsvm_test, ocsvm_predictions, zero_division=0))
         
         print("\nIsolation Forest Results:")
-        print(classification_report(y_test, iforest_predictions))
+        print(classification_report(y_iforest_test, iforest_predictions, zero_division=0))
         
         print("\nLSTM Results:")
-        print(classification_report(y_test, lstm_predictions))
+        print(classification_report(y_lstm_test, lstm_predictions, zero_division=0))
         
-        # Evaluate combined model
-        combined_predictions = self.combine_predictions(ocsvm_predictions, iforest_predictions, lstm_predictions)
+        # To combine predictions, we need to ensure they're aligned by discharge ID
+        # Create alignment between ids_*_test lists
+        all_ids = list(set(ids_ocsvm_test) & set(ids_iforest_test) & set(ids_lstm_test))
+        
+        # Create aligned predictions and labels
+        aligned_ocsvm_preds = []
+        aligned_iforest_preds = []
+        aligned_lstm_preds = []
+        aligned_true_labels = []
+        
+        for discharge_id in all_ids:
+            ocsvm_idx = ids_ocsvm_test.index(discharge_id)
+            iforest_idx = ids_iforest_test.index(discharge_id)
+            lstm_idx = ids_lstm_test.index(discharge_id)
+            
+            aligned_ocsvm_preds.append(ocsvm_predictions[ocsvm_idx])
+            aligned_iforest_preds.append(iforest_predictions[iforest_idx])
+            aligned_lstm_preds.append(lstm_predictions[lstm_idx])
+            aligned_true_labels.append(y_ocsvm_test[ocsvm_idx])  # All y_*_test should have the same label for each ID
+        
+        # Convert to numpy arrays
+        aligned_ocsvm_preds = np.array(aligned_ocsvm_preds)
+        aligned_iforest_preds = np.array(aligned_iforest_preds)
+        aligned_lstm_preds = np.array(aligned_lstm_preds)
+        aligned_true_labels = np.array(aligned_true_labels)
+        
+        # Combine predictions
+        combined_predictions = self.combine_predictions(
+            aligned_ocsvm_preds, aligned_iforest_preds, aligned_lstm_preds
+        )
         
         print("\nCombined Model Results:")
-        print(classification_report(y_test, combined_predictions))
+        print(classification_report(aligned_true_labels, combined_predictions, zero_division=0))
         
         # Save test set details for later analysis
         self.test_data = {
-            'X_test': X_test,
-            'y_test': y_test,
-            'ids_test': ids_test,
-            'X_lstm_test': X_lstm_test
+            'X_ocsvm_test': X_ocsvm_test,
+            'X_iforest_test': X_iforest_test,
+            'X_lstm_test': X_lstm_test,
+            'y_test': y_ocsvm_test,  # Use any of the y_*_test
+            'ids_test': all_ids
         }
-        
+
         return {
-            'ocsvm': ocsvm_predictions,
-            'iforest': iforest_predictions,
-            'lstm': lstm_predictions,
+            'ocsvm': aligned_ocsvm_preds,
+            'iforest': aligned_iforest_preds,
+            'lstm': aligned_lstm_preds,
             'combined': combined_predictions,
-            'true': y_test,
-            'ids': ids_test
+            'true': aligned_true_labels,
+            'ids': all_ids
         }
-    
+
     def predict_ocsvm(self, X):
         """Predict using OCSVM model."""
-        # OCSVM returns: 1 for normal, -1 for anomaly
-        # We want: 0 for normal, 1 for anomaly/disruption
-        raw_pred = self.ocsvm_model.predict(X)
-        return (raw_pred == -1).astype(int)  # Convert to binary labels
+        # Apply the same scaling as used during training
+        X = self.ocsvm_scaler.transform(X)
+        return predict_with_ocsvm(self.ocsvm_model, X)
     
     def predict_iforest(self, X):
         """Predict using Isolation Forest."""
-        # Isolation Forest returns: 1 for normal, -1 for anomaly
-        # We want: 0 for normal, 1 for anomaly/disruption
-        raw_pred = self.iforest_model.predict(X)
-        return (raw_pred == -1).astype(int)
+        return predict_with_iforest(self.iforest_model, X)
     
     def predict_lstm(self, X):
         """Predict using LSTM model."""
-        raw_pred = self.lstm_model.predict(X)
-        return (raw_pred > 0.5).astype(int).flatten()
+        return predict_with_lstm(self.lstm_model, X)
     
     def combine_predictions(self, ocsvm_pred, iforest_pred, lstm_pred):
-        """Combine predictions using majority voting."""
-        # Stack predictions
         all_preds = np.vstack([ocsvm_pred, iforest_pred, lstm_pred])
-        # Count votes for class 1 (disruption)
         votes = np.sum(all_preds, axis=0)
-        # If majority votes for disruption (class 1), predict 1
         return (votes >= 2).astype(int)
-    
+
     def predict_discharge(self, discharge_id):
-        """Predict for a specific discharge and show detailed voting results."""
         if discharge_id not in self.discharge_data:
             print(f"Discharge {discharge_id} not found in data")
             return None
             
-        # Extract features for this discharge
-        features = {}
-        for feature_num, feature_data in self.discharge_data[discharge_id].items():
-            features[feature_num] = [
-                feature_data['value'].mean(),
-                feature_data['value'].std(),
-                feature_data['value'].min(),
-                feature_data['value'].max(),
-                feature_data['value'].skew(),
-                feature_data['value'].kurtosis()
-            ]
-            
-        # Flatten features list
-        feature_vector = []
-        for i in range(1, 8):
-            if i in features:
-                feature_vector.extend(features[i])
-            else:
-                # Fill with zeros for missing features
-                feature_vector.extend([0, 0, 0, 0, 0, 0])
-                
-        # Scale the feature vector
-        X = np.array([feature_vector])
-        X_scaled = self.scaler.transform(X)
-        X_lstm = np.reshape(X_scaled, (X_scaled.shape[0], 1, X_scaled.shape[1]))
+        # Get features for each model
+        X_ocsvm = prepare_ocsvm_features_for_single_discharge(
+            self.discharge_data, self.advanced_features, discharge_id
+        )
+        
+        X_iforest = prepare_iforest_features_for_single_discharge(
+            self.discharge_data, discharge_id, self.iforest_scaler
+        )
+        
+        X_lstm = prepare_lstm_features_for_single_discharge(
+            self.discharge_data, discharge_id, self.lstm_scaler
+        )
         
         # Get predictions from each model
-        ocsvm_pred = self.predict_ocsvm(X_scaled)[0]
-        iforest_pred = self.predict_iforest(X_scaled)[0]
+        ocsvm_pred = self.predict_ocsvm(X_ocsvm)[0]
+        iforest_pred = self.predict_iforest(X_iforest)[0]
         lstm_pred = self.predict_lstm(X_lstm)[0]
-        
-        # Final prediction using majority voting
+
         final_pred = 1 if (ocsvm_pred + iforest_pred + lstm_pred >= 2) else 0
-        
-        # Print results
+
         print(f"\nPrediction results for discharge {discharge_id}:")
-        print(f"OCSVM: {'Disruptive' if ocsvm_pred == 1 else 'Non-disruptive'}")
+        print(f"OCSVM (window features): {'Disruptive' if ocsvm_pred == 1 else 'Non-disruptive'}")
         print(f"Isolation Forest: {'Disruptive' if iforest_pred == 1 else 'Non-disruptive'}")
         print(f"LSTM: {'Disruptive' if lstm_pred == 1 else 'Non-disruptive'}")
         print(f"Final prediction: {'Disruptive' if final_pred == 1 else 'Non-disruptive'}")
         print(f"Actual label: {'Disruptive' if self.discharge_labels[discharge_id] == 1 else 'Non-disruptive'}")
-        
+
         return {
             'ocsvm': ocsvm_pred,
             'iforest': iforest_pred,
@@ -344,69 +236,55 @@ class DisruptionClassifier:
             'final': final_pred,
             'actual': self.discharge_labels[discharge_id]
         }
-    
+
     def analyze_test_set(self):
-        """Analyze and print detailed results for test set."""
         if not hasattr(self, 'test_data'):
             print("No test data available. Run train_models first.")
             return
-            
-        X_test = self.test_data['X_test']
-        X_lstm_test = self.test_data['X_lstm_test']
-        y_test = self.test_data['y_test']
-        ids_test = self.test_data['ids_test']
         
-        ocsvm_pred = self.predict_ocsvm(X_test)
-        iforest_pred = self.predict_iforest(X_test)
-        lstm_pred = self.predict_lstm(X_lstm_test)
-        combined_pred = self.combine_predictions(ocsvm_pred, iforest_pred, lstm_pred)
+        ids_test = self.test_data['ids_test']
+        results = {}
         
         print("\nDetailed test set results:")
-        for i, discharge_id in enumerate(ids_test):
-            print(f"\nDischarge {discharge_id}:")
-            print(f"Actual: {'Disruptive' if y_test[i] == 1 else 'Non-disruptive'}")
-            print(f"OCSVM: {'Disruptive' if ocsvm_pred[i] == 1 else 'Non-disruptive'}")
-            print(f"IForest: {'Disruptive' if iforest_pred[i] == 1 else 'Non-disruptive'}")
-            print(f"LSTM: {'Disruptive' if lstm_pred[i] == 1 else 'Non-disruptive'}")
-            print(f"Combined: {'Disruptive' if combined_pred[i] == 1 else 'Non-disruptive'}")
+        for discharge_id in ids_test:
+            result = self.predict_discharge(discharge_id)
+            results[discharge_id] = result
             
         # Calculate overall metrics
+        actuals = [results[id]['actual'] for id in ids_test]
+        ocsvm_preds = [results[id]['ocsvm'] for id in ids_test]
+        iforest_preds = [results[id]['iforest'] for id in ids_test]
+        lstm_preds = [results[id]['lstm'] for id in ids_test]
+        final_preds = [results[id]['final'] for id in ids_test]
+        
         print("\nOverall Accuracy:")
-        print(f"OCSVM: {accuracy_score(y_test, ocsvm_pred):.4f}")
-        print(f"Isolation Forest: {accuracy_score(y_test, iforest_pred):.4f}")
-        print(f"LSTM: {accuracy_score(y_test, lstm_pred):.4f}")
-        print(f"Combined: {accuracy_score(y_test, combined_pred):.4f}")
+        print(f"OCSVM: {accuracy_score(actuals, ocsvm_preds):.4f}")
+        print(f"Isolation Forest: {accuracy_score(actuals, iforest_preds):.4f}")
+        print(f"LSTM: {accuracy_score(actuals, lstm_preds):.4f}")
+        print(f"Combined: {accuracy_score(actuals, final_preds):.4f}")
 
-# Main code to run the classifier
+
 if __name__ == "__main__":
-    # Paths to data
     data_path = DISCHARGE_DATA_PATH
     discharge_list_path = DISCHARGES_ETIQUETATION_DATA_FILE
-    
-    # Create and run the classifier
+
     classifier = DisruptionClassifier(data_path, discharge_list_path)
     classifier.load_all_data()
-    
-    # Train all models
+
     results = classifier.train_models(test_size=0.3)
-    
-    # Analyze test set in detail
+
     classifier.analyze_test_set()
-    
+
     print("\nPredicting for specific discharges:")
-    for discharge_id in list(classifier.discharge_labels.keys()):
+    sample_discharges = list(classifier.discharge_labels.keys())[:5]
+    for discharge_id in sample_discharges:
         classifier.predict_discharge(discharge_id)
 
-    # Print summary of results
-    print("\nSummary of results:")
-    for discharge_id, label in classifier.discharge_labels.items():
-        print(f"Discharge {discharge_id}: classified as {'Disruptive' if label == 1 else 'Non-disruptive'}, actual label: {'Disruptive' if label == 1 else 'Non-disruptive'}")
     print("\nAll models trained and evaluated successfully.")
 
-    # Print precision and recall for each model
     print("\nPrecision and Recall:")
     for model_name, predictions in results.items():
-        if model_name != 'true':
+        if model_name != 'true' and model_name != 'ids':
             precision = np.sum((predictions == 1) & (results['true'] == 1)) / np.sum(predictions == 1)
             recall = np.sum((predictions == 1) & (results['true'] == 1)) / np.sum(results['true'] == 1)
             print(f"{model_name}: Precision = {precision:.4f}, Recall = {recall:.4f}")

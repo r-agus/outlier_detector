@@ -1,0 +1,77 @@
+@startuml OCSVM_Model_Technical_Workflow
+
+title One-Class SVM for Disruption Detection - Technical Workflow
+
+partition "Advanced Feature Extraction" {
+  :Create sliding windows of time series;
+  note right: Multiple window sizes for multi-scale features
+  
+  :Extract statistical features per window;
+  note right: Mean, variance, min, max, etc.
+  
+  :Calculate trend indicators;
+  note right: Linear regression coefficients
+  
+  :Extract frequency domain features;
+  note right: FFT components, power spectral density
+  
+  :Compute autocorrelation features;
+  note right: Temporal dependencies
+
+  :Generate advanced_features dictionary;
+  note right: Stored for single discharge prediction
+}
+
+partition "Feature Processing" {
+  :Combine all extracted features;
+  note right: High-dimensional feature space
+  
+  :Apply StandardScaler transformation;
+  note right: Zero mean, unit variance
+  
+  :Store scaler for prediction;
+}
+
+partition "OCSVM Configuration" {
+  :Set kernel function;
+  note right: RBF kernel for non-linear boundaries
+  
+  :Configure nu parameter;
+  note right: Controls boundary tightness (0.05)
+  
+  :Set gamma parameter;
+  note right: Kernel coefficient (scale)
+}
+
+partition "Model Training" {
+  :Train OCSVM on non-disruptive data only;
+  note right: Learn "normal" state boundary
+  
+  :Compute support vectors;
+  note right: Points that define the decision boundary
+  
+  :Calculate decision function;
+  note right: Distance from hyperplane in feature space
+  
+  :Store model for prediction;
+}
+
+partition "Prediction Pipeline" {
+  :Apply advanced feature extraction;
+  note right: prepare_ocsvm_features_for_single_discharge()
+  
+  :Use stored feature templates;
+  note right: From advanced_features dictionary
+  
+  :Scale features with stored scaler;
+  
+  :Compute distance to decision boundary;
+  note right: SVM decision function value
+  
+  :Apply threshold to distance;
+  note right: distance < 0 → Outlier/Disruptive (1)
+  
+  :Return binary prediction;
+}
+
+@enduml
