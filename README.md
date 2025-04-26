@@ -1,3 +1,5 @@
+# Repositorio deprecado. [Ver organización](https://github.com/outlierClassifier)
+
 # Table Of Contents
 1. [Table Of Contents](#table-of-contents)
 2. [Estructura general](#estructura-general)
